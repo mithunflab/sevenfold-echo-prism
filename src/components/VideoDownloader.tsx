@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,7 +43,11 @@ const VideoDownloader = () => {
 
     const videoInfo = await getVideoInfo(url);
     if (videoInfo) {
-      setVideoData(videoInfo);
+      // Add formats property to match VideoData interface
+      setVideoData({
+        ...videoInfo,
+        formats: videoInfo.formats || []
+      });
       toast({
         title: "Video Found!",
         description: "Video information loaded successfully.",
@@ -53,7 +58,13 @@ const VideoDownloader = () => {
   const handleDownload = async (quality: string = '1080p') => {
     if (!videoData) return;
     
-    const jobId = await startDownload(url, videoData, quality);
+    // Convert VideoData to VideoInfo by ensuring formats is present
+    const videoInfo = {
+      ...videoData,
+      formats: videoData.formats || []
+    };
+    
+    const jobId = await startDownload(url, videoInfo, quality);
     if (jobId) {
       // Clear the current video data since download started
       setVideoData(null);
@@ -75,11 +86,11 @@ const VideoDownloader = () => {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 className="flex-1 bg-gray-900/50 border-gray-600 text-white placeholder-gray-400 h-12 text-lg"
-                disabled={isLoading || currentDownload}
+                disabled={isLoading || !!currentDownload}
               />
               <Button 
                 type="submit" 
-                disabled={!url || isLoading || currentDownload}
+                disabled={!url || isLoading || !!currentDownload}
                 className="h-12 px-8 bg-gradient-to-r from-red-600 to-purple-600 hover:from-red-700 hover:to-purple-700 text-white font-semibold"
               >
                 {isLoading ? (

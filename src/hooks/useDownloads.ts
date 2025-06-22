@@ -78,7 +78,8 @@ export const useDownloads = () => {
         .limit(10);
 
       if (error) throw error;
-      setDownloadJobs(data || []);
+      // Cast the data to our DownloadJob type to ensure proper typing
+      setDownloadJobs((data || []) as DownloadJob[]);
     } catch (error) {
       console.error('Error loading download jobs:', error);
     }
