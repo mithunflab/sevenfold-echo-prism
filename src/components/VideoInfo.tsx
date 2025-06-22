@@ -10,15 +10,23 @@ interface VideoData {
   duration: string;
   uploader: string;
   view_count: string;
+  formats?: any[];
 }
 
 interface VideoInfoProps {
   videoData: VideoData;
-  onDownload: () => void;
+  onDownload: (quality?: string) => void;
   isDownloading: boolean;
 }
 
 const VideoInfo: React.FC<VideoInfoProps> = ({ videoData, onDownload, isDownloading }) => {
+  const qualityOptions = [
+    { label: '720p MP4', value: '720p' },
+    { label: '1080p MP4', value: '1080p' },
+    { label: '1440p MP4', value: '1440p' },
+    { label: '4K MP4', value: '4K' }
+  ];
+
   return (
     <Card className="p-6 bg-gray-800/50 border-gray-700 backdrop-blur-sm animate-fade-in">
       <div className="grid md:grid-cols-3 gap-6">
@@ -57,38 +65,33 @@ const VideoInfo: React.FC<VideoInfoProps> = ({ videoData, onDownload, isDownload
           <div className="space-y-3">
             <h3 className="text-white font-semibold">Quality Options</h3>
             <div className="grid grid-cols-2 gap-3">
-              <Button
-                onClick={onDownload}
-                disabled={isDownloading}
-                variant="outline"
-                className="bg-gray-700/50 border-gray-600 text-white hover:bg-gray-600/50"
-              >
-                720p MP4
-              </Button>
-              <Button
-                onClick={onDownload}
-                disabled={isDownloading}
-                variant="outline"
-                className="bg-gray-700/50 border-gray-600 text-white hover:bg-gray-600/50"
-              >
-                1080p MP4
-              </Button>
+              {qualityOptions.map((option) => (
+                <Button
+                  key={option.value}
+                  onClick={() => onDownload(option.value)}
+                  disabled={isDownloading}
+                  variant="outline"
+                  className="bg-gray-700/50 border-gray-600 text-white hover:bg-gray-600/50"
+                >
+                  {option.label}
+                </Button>
+              ))}
             </div>
             
             <Button
-              onClick={onDownload}
+              onClick={() => onDownload('1080p')}
               disabled={isDownloading}
               className="w-full h-12 bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white font-semibold"
             >
               {isDownloading ? (
                 <>
                   <Download className="w-5 h-5 mr-2 animate-bounce" />
-                  Downloading...
+                  Starting Download...
                 </>
               ) : (
                 <>
                   <Download className="w-5 h-5 mr-2" />
-                  Download Best Quality
+                  Download Best Quality (1080p)
                 </>
               )}
             </Button>
