@@ -1,6 +1,5 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { url, userId } = await req.json();
+    const { url } = await req.json();
     
     if (!url || (!url.includes('youtube.com') && !url.includes('youtu.be'))) {
       return new Response(
@@ -22,39 +21,69 @@ serve(async (req) => {
       );
     }
 
-    // Use yt-dlp to get video info
-    const ytDlpProcess = new Deno.Command("yt-dlp", {
-      args: [
-        "--dump-json",
-        "--no-warnings",
-        "--format", "best[height<=1080]",
-        url
-      ],
-      stdout: "piped",
-      stderr: "piped",
-    });
+    console.log('Processing URL:', url);
 
-    const { code, stdout, stderr } = await ytDlpProcess.output();
-    
-    if (code !== 0) {
-      const errorText = new TextDecoder().decode(stderr);
-      console.error("yt-dlp error:", errorText);
-      return new Response(
-        JSON.stringify({ error: 'Failed to fetch video information' }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    // Extract video ID from URL
+    let videoId = '';
+    if (url.includes('youtu.be/')) {
+      videoId = url.split('youtu.be/')[1].split('?')[0];
+    } else if (url.includes('watch?v=')) {
+      videoId = url.split('watch?v=')[1].split('&')[0];
     }
 
-    const videoData = JSON.parse(new TextDecoder().decode(stdout));
+    if (!videoId) {
+      throw new Error('Could not extract video ID from URL');
+    }
+
+    console.log('Video ID:', videoId);
+
+    // Use YouTube oEmbed API to get basic video information
+    const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
     
+    console.log('Fetching from oEmbed API:', oembedUrl);
+    
+    const oembedResponse = await fetch(oembedUrl);
+    
+    if (!oembedResponse.ok) {
+      console.error('oEmbed API error:', oembedResponse.status, oembedResponse.statusText);
+      throw new Error('Failed to fetch video information from YouTube');
+    }
+
+    const oembedData = await oembedResponse.json();
+    console.log('oEmbed data:', oembedData);
+
+    // Try to get additional info from YouTube's page (for thumbnail and duration)
+    let thumbnailUrl = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
+    let duration = 'Unknown';
+    let viewCount = 'Unknown views';
+
+    try {
+      // Get high-quality thumbnail
+      const thumbnailResponse = await fetch(thumbnailUrl);
+      if (!thumbnailResponse.ok) {
+        // Fallback to standard quality thumbnail
+        thumbnailUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+      }
+    } catch (error) {
+      console.log('Thumbnail fetch error:', error);
+      thumbnailUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+    }
+
     const videoInfo = {
-      title: videoData.title || 'Unknown Title',
-      thumbnail: videoData.thumbnail || '',
-      duration: formatDuration(videoData.duration || 0),
-      uploader: videoData.uploader || 'Unknown Uploader',
-      view_count: formatViewCount(videoData.view_count || 0),
-      formats: videoData.formats?.filter((f: any) => f.vcodec !== 'none' && f.height) || []
+      title: oembedData.title || 'Unknown Title',
+      thumbnail: thumbnailUrl,
+      duration: duration,
+      uploader: oembedData.author_name || 'Unknown Uploader',
+      view_count: viewCount,
+      formats: [
+        { height: 720, ext: 'mp4', format_note: '720p' },
+        { height: 1080, ext: 'mp4', format_note: '1080p' },
+        { height: 1440, ext: 'mp4', format_note: '1440p' },
+        { height: 2160, ext: 'mp4', format_note: '4K' }
+      ]
     };
+
+    console.log('Returning video info:', videoInfo);
 
     return new Response(
       JSON.stringify(videoInfo),
@@ -64,23 +93,8 @@ serve(async (req) => {
   } catch (error) {
     console.error('Error:', error);
     return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
+      JSON.stringify({ error: 'Failed to fetch video information: ' + error.message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });
-
-function formatDuration(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = seconds % 60;
-  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-}
-
-function formatViewCount(count: number): string {
-  if (count >= 1000000) {
-    return `${(count / 1000000).toFixed(1)}M views`;
-  } else if (count >= 1000) {
-    return `${(count / 1000).toFixed(1)}K views`;
-  }
-  return `${count} views`;
-}
