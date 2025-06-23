@@ -135,18 +135,20 @@ const VideoDownloader = () => {
   const [selectedFormat, setSelectedFormat] = useState<'video' | 'audio' | 'both'>('both');
   const [error, setError] = useState('');
   
-  // Use the real useDownloads hook
+  // Use the enhanced useDownloads hook
   const { downloadJobs, isLoading, getVideoInfo, startDownload, downloadFile } = useDownloads();
 
-  console.log('VideoDownloader component rendering');
+  console.log('VideoDownloader rendering, downloadJobs:', downloadJobs.length);
 
   // Get current downloading job
   const currentDownload = downloadJobs.find(job => 
     job.status === 'downloading' || job.status === 'pending'
   );
 
-  // Get completed downloads
-  const completedDownloads = downloadJobs.filter(job => job.status === 'completed');
+  // Get completed downloads (show last 5)
+  const completedDownloads = downloadJobs
+    .filter(job => job.status === 'completed')
+    .slice(0, 5);
 
   // Detect platform from URL
   const detectPlatform = (url: string) => {
@@ -167,15 +169,16 @@ const VideoDownloader = () => {
       return;
     }
 
-    // Basic URL validation for supported platforms
+    // Enhanced URL validation
     const supportedPlatforms = [
       'youtube.com', 'youtu.be', 'facebook.com', 'fb.watch',
-      'twitter.com', 'x.com', 'instagram.com', 'tiktok.com'
+      'twitter.com', 'x.com', 'instagram.com', 'tiktok.com',
+      'dailymotion.com', 'vimeo.com', 'twitch.tv'
     ];
     
     const isSupported = supportedPlatforms.some(platform => url.includes(platform));
     if (!isSupported) {
-      setError('Please enter a URL from a supported platform');
+      setError('Please enter a URL from a supported platform (YouTube, Facebook, Twitter, Instagram, TikTok, etc.)');
       return;
     }
 
@@ -192,6 +195,8 @@ const VideoDownloader = () => {
   const handleDownload = async () => {
     if (!videoData) return;
     
+    console.log('Starting download with format:', selectedFormat, 'quality:', selectedQuality);
+    
     // Ensure formats array exists for VideoInfo interface compatibility
     const videoInfoWithFormats = {
       ...videoData,
@@ -207,18 +212,36 @@ const VideoDownloader = () => {
   };
 
   const qualityOptions = [
-    { label: '144p', value: '144p' },
-    { label: '360p', value: '360p' },
-    { label: '720p', value: '720p' },
-    { label: '1080p', value: '1080p' },
-    { label: '1440p', value: '1440p' },
-    { label: '4K', value: '4K' }
+    { label: '144p', value: '144p', desc: 'Lowest quality, smallest file' },
+    { label: '360p', value: '360p', desc: 'Good for mobile viewing' },
+    { label: '720p', value: '720p', desc: 'HD quality, balanced size' },
+    { label: '1080p', value: '1080p', desc: 'Full HD, recommended' },
+    { label: '1440p', value: '1440p', desc: '2K quality, large file' },
+    { label: '4K', value: '4K', desc: 'Ultra HD, very large file' }
   ];
 
   const formatOptions = [
-    { label: 'Video + Audio', value: 'both' as const, icon: Video },
-    { label: 'Video Only', value: 'video' as const, icon: Film },
-    { label: 'Audio Only', value: 'audio' as const, icon: Music }
+    { 
+      label: 'Video + Audio', 
+      value: 'both' as const, 
+      icon: Video, 
+      desc: 'Complete video with sound (MP4)',
+      recommended: true 
+    },
+    { 
+      label: 'Audio Only', 
+      value: 'audio' as const, 
+      icon: Music, 
+      desc: 'Extract audio track only (MP3)',
+      recommended: false 
+    },
+    { 
+      label: 'Video Only', 
+      value: 'video' as const, 
+      icon: Film, 
+      desc: 'Video without audio track (MP4)',
+      recommended: false 
+    }
   ];
 
   return (
@@ -367,49 +390,58 @@ const VideoDownloader = () => {
                       />
                       <div className="flex-1">
                         <h3 className="text-white font-semibold text-lg mb-2">{videoData.title}</h3>
-                        <div className="flex items-center gap-4 text-white/60 mb-4">
+                        <div className="flex items-center gap-4 text-white/60 mb-6">
                           <span>Duration: {videoData.duration}</span>
                           <span>By: {videoData.uploader}</span>
                         </div>
                         
-                        {/* Format Selection */}
-                        <div className="mb-4">
-                          <span className="text-white/80 block mb-2">Download Format:</span>
-                          <div className="flex gap-2">
+                        {/* Enhanced Format Selection */}
+                        <div className="mb-6">
+                          <span className="text-white/80 block mb-3 font-medium">Download Format:</span>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                             {formatOptions.map((format) => (
                               <button
                                 key={format.value}
                                 onClick={() => setSelectedFormat(format.value)}
                                 className={cn(
-                                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors",
+                                  "flex flex-col items-center gap-2 p-4 rounded-xl text-sm transition-all relative",
                                   selectedFormat === format.value
-                                    ? "bg-blue-500 text-white"
-                                    : "bg-white/10 text-white/70 hover:bg-white/20"
+                                    ? "bg-blue-500/20 border-2 border-blue-400 text-white"
+                                    : "bg-white/5 border border-white/10 text-white/70 hover:bg-white/10"
                                 )}
                               >
-                                <format.icon className="w-4 h-4" />
-                                {format.label}
+                                {format.recommended && (
+                                  <span className="absolute -top-2 -right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full">
+                                    Recommended
+                                  </span>
+                                )}
+                                <format.icon className="w-6 h-6" />
+                                <span className="font-medium">{format.label}</span>
+                                <span className="text-xs text-center opacity-75">{format.desc}</span>
                               </button>
                             ))}
                           </div>
                         </div>
                         
-                        {/* Quality Selection */}
+                        {/* Enhanced Quality Selection */}
                         <div>
-                          <span className="text-white/80 block mb-2">Quality:</span>
-                          <div className="flex gap-2 flex-wrap">
+                          <span className="text-white/80 block mb-3 font-medium">
+                            Quality {selectedFormat === 'audio' ? '(Audio Bitrate)' : '(Video Resolution)'}:
+                          </span>
+                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                             {qualityOptions.map((quality) => (
                               <button
                                 key={quality.value}
                                 onClick={() => setSelectedQuality(quality.value)}
                                 className={cn(
-                                  "px-3 py-1 rounded-lg text-sm transition-colors",
+                                  "flex flex-col items-center p-3 rounded-lg text-sm transition-colors",
                                   selectedQuality === quality.value
-                                    ? "bg-red-500 text-white"
-                                    : "bg-white/10 text-white/70 hover:bg-white/20"
+                                    ? "bg-red-500/20 border border-red-400 text-white"
+                                    : "bg-white/5 border border-white/10 text-white/70 hover:bg-white/10"
                                 )}
                               >
-                                {quality.label}
+                                <span className="font-medium">{quality.label}</span>
+                                <span className="text-xs opacity-75 text-center">{quality.desc}</span>
                               </button>
                             ))}
                           </div>
@@ -421,66 +453,74 @@ const VideoDownloader = () => {
               )}
             </AnimatePresence>
 
-            {/* Download Section */}
+            {/* Enhanced Download Button */}
             {videoData && !currentDownload && (
               <Button
                 onClick={handleDownload}
-                className="w-full h-16 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold text-lg rounded-xl transition-all duration-300 transform hover:scale-105"
+                className="w-full h-16 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold text-lg rounded-xl transition-all duration-300 transform hover:scale-105 relative overflow-hidden"
               >
+                <div className="absolute inset-0 bg-white/10 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
                 <Download className="w-6 h-6 mr-3" />
                 Download {selectedFormat === 'audio' ? 'Audio' : selectedFormat === 'video' ? 'Video' : 'Video + Audio'} ({selectedQuality})
               </Button>
             )}
 
+            {/* Enhanced Real-time Progress Display */}
             <AnimatePresence>
               {currentDownload && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -20 }}
-                  className="bg-black/30 rounded-2xl p-6 border border-white/10"
+                  className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-2xl p-6 border border-blue-400/20"
                 >
                   <div className="flex items-center justify-between mb-4">
-                    <span className="text-white font-semibold">
-                      {currentDownload.status === 'completed' ? 'Download Complete!' : 'Downloading...'}
+                    <div className="flex items-center gap-3">
+                      <div className="relative">
+                        <Loader2 className="w-6 h-6 animate-spin text-blue-400" />
+                        <div className="absolute inset-0 bg-blue-400/20 rounded-full animate-ping"></div>
+                      </div>
+                      <span className="text-white font-semibold text-lg">
+                        {currentDownload.status === 'pending' ? 'Preparing Download...' : 'Downloading'}
+                      </span>
+                    </div>
+                    <span className="text-blue-400 font-bold text-xl">
+                      {currentDownload.progress.toFixed(1)}%
                     </span>
-                    {currentDownload.status === 'completed' ? (
-                      <CheckCircle className="w-6 h-6 text-green-500" />
-                    ) : (
-                      <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                    )}
                   </div>
                   
-                  <div className="flex items-center space-x-3 mb-4">
+                  <div className="flex items-center space-x-4 mb-6">
                     <img 
                       src={currentDownload.video_thumbnail || ''} 
                       alt={currentDownload.video_title || 'Video'}
-                      className="w-16 h-12 object-cover rounded"
+                      className="w-20 h-14 object-cover rounded-lg"
                     />
                     <div className="flex-1">
-                      <h4 className="text-white font-medium text-sm truncate">
+                      <h4 className="text-white font-medium text-lg mb-1 truncate">
                         {currentDownload.video_title}
                       </h4>
-                      <p className="text-gray-400 text-xs">
-                        {currentDownload.video_uploader} • {currentDownload.quality}
+                      <p className="text-gray-300 text-sm mb-2">
+                        {currentDownload.video_uploader} • {formatOptions.find(f => currentDownload.quality.includes(f.value))?.label || 'Processing'}
                       </p>
+                      <div className="flex items-center gap-4 text-sm text-white/70">
+                        <span>Speed: {currentDownload.download_speed || 'Calculating...'}</span>
+                        <span>ETA: {currentDownload.eta || 'Calculating...'}</span>
+                      </div>
                     </div>
                   </div>
                   
-                  <div className="space-y-3">
-                    <div className="w-full bg-white/10 rounded-full h-3 overflow-hidden">
+                  {/* Enhanced Progress Bar */}
+                  <div className="space-y-2">
+                    <div className="w-full bg-black/30 rounded-full h-4 overflow-hidden">
                       <motion.div
                         initial={{ width: 0 }}
                         animate={{ width: `${currentDownload.progress}%` }}
-                        className="h-full bg-gradient-to-r from-blue-500 to-green-500 rounded-full"
-                        transition={{ duration: 0.5 }}
-                      />
-                    </div>
-                    
-                    <div className="flex justify-between text-sm text-white/70">
-                      <span>{currentDownload.progress.toFixed(1)}%</span>
-                      <span>{currentDownload.download_speed}</span>
-                      <span>ETA: {currentDownload.eta}</span>
+                        className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-green-500 rounded-full relative"
+                        transition={{ duration: 0.5, ease: "easeOut" }}
+                      >
+                        <div className="absolute inset-0 bg-white/20 animate-pulse rounded-full"></div>
+                        <div className="absolute right-0 top-0 h-full w-8 bg-white/30 rounded-full transform translate-x-2 animate-bounce"></div>
+                      </motion.div>
                     </div>
                   </div>
                 </motion.div>
@@ -488,36 +528,43 @@ const VideoDownloader = () => {
             </AnimatePresence>
           </div>
 
-          {/* Completed Downloads */}
+          {/* Enhanced Completed Downloads */}
           {completedDownloads.length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl"
             >
-              <h3 className="text-white font-semibold text-xl mb-6">Ready for Download</h3>
-              <div className="space-y-4">
+              <h3 className="text-white font-semibold text-2xl mb-6 flex items-center gap-2">
+                <CheckCircle className="w-6 h-6 text-green-400" />
+                Ready for Download ({completedDownloads.length})
+              </h3>
+              <div className="grid gap-4">
                 {completedDownloads.map((job) => (
-                  <div key={job.id} className="bg-black/30 rounded-xl p-4 border border-white/10">
+                  <div key={job.id} className="bg-black/20 rounded-xl p-4 border border-green-400/20 hover:border-green-400/40 transition-colors">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center gap-4">
                         <img 
                           src={job.video_thumbnail || ''} 
                           alt={job.video_title || 'Video'}
-                          className="w-12 h-9 object-cover rounded"
+                          className="w-16 h-12 object-cover rounded-lg"
                         />
-                        <div>
-                          <h4 className="text-white font-medium text-sm truncate max-w-xs">
+                        <div className="flex-1">
+                          <h4 className="text-white font-medium text-lg mb-1 truncate max-w-xs">
                             {job.video_title}
                           </h4>
-                          <p className="text-gray-400 text-xs">
-                            {job.file_size} • {job.quality}
-                          </p>
+                          <div className="flex items-center gap-3 text-sm text-gray-300">
+                            <span>{job.file_size}</span>
+                            <span>•</span>
+                            <span>{formatOptions.find(f => job.quality.includes(f.value))?.label || job.quality}</span>
+                            <span>•</span>
+                            <span className="text-green-400">✓ Complete</span>
+                          </div>
                         </div>
                       </div>
                       <Button
-                        onClick={() => job.download_url && downloadFile(job.download_url, job.video_title || 'video')}
-                        className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg"
+                        onClick={() => job.download_url && downloadFile(job.download_url, job.video_title || 'video', job.quality)}
+                        className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white px-6 py-3 rounded-lg transition-all transform hover:scale-105"
                       >
                         <Download className="w-4 h-4 mr-2" />
                         Download
