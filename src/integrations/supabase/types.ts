@@ -13,6 +13,7 @@ export type Database = {
         Row: {
           created_at: string
           download_speed: string | null
+          download_url: string | null
           error_message: string | null
           eta: string | null
           file_size: string | null
@@ -31,6 +32,7 @@ export type Database = {
         Insert: {
           created_at?: string
           download_speed?: string | null
+          download_url?: string | null
           error_message?: string | null
           eta?: string | null
           file_size?: string | null
@@ -49,6 +51,7 @@ export type Database = {
         Update: {
           created_at?: string
           download_speed?: string | null
+          download_url?: string | null
           error_message?: string | null
           eta?: string | null
           file_size?: string | null
