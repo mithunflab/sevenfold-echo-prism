@@ -72,32 +72,35 @@ export const useDownloads = () => {
             );
             
             if (updatedJob.status === 'completed' && updatedJob.download_url) {
-              // Enhanced completion notification with file size
               toast({
                 title: "✅ Download Complete!",
                 description: `${updatedJob.video_title || 'Your video'} is ready (${updatedJob.file_size}). Click Download to save to your device.`,
                 duration: 6000,
               });
             } else if (updatedJob.status === 'failed') {
-              // Enhanced error notification with specific guidance
+              // Enhanced error handling with specific user guidance
               const errorMsg = updatedJob.error_message || "Download failed";
               let userFriendlyMsg = "Download failed. Please try again.";
               
-              if (errorMsg.includes('corrupted') || errorMsg.includes('too small')) {
-                userFriendlyMsg = "File corruption detected. Trying a different quality may help.";
+              if (errorMsg.includes('File too small') || errorMsg.includes('corrupted')) {
+                userFriendlyMsg = "File corruption detected during download. This usually means the video isn't available in the requested quality. Try a different quality option.";
+              } else if (errorMsg.includes('Invalid file format')) {
+                userFriendlyMsg = "The downloaded file is not a valid video/audio file. The video may be region-locked or unavailable. Try a different URL or quality.";
               } else if (errorMsg.includes('timeout')) {
-                userFriendlyMsg = "Download timed out. The video may be too large or server is busy.";
+                userFriendlyMsg = "Download timed out. The video may be too large or the server is busy. Try again with a lower quality setting.";
               } else if (errorMsg.includes('not available')) {
-                userFriendlyMsg = "This quality is not available. Please try a different quality option.";
-              } else if (errorMsg.includes('yt-dlp')) {
-                userFriendlyMsg = "Video downloader is currently unavailable. Please try again later.";
+                userFriendlyMsg = "This quality is not available for this video. Please try a different quality option.";
+              } else if (errorMsg.includes('yt-dlp') || errorMsg.includes('downloader')) {
+                userFriendlyMsg = "Video downloader is currently unavailable. Our system is working to resolve this. Please try again in a few minutes.";
+              } else if (errorMsg.includes('No video file was downloaded')) {
+                userFriendlyMsg = "No video was downloaded. The URL may be invalid, private, or from an unsupported platform. Please check the URL and try again.";
               }
               
               toast({
                 title: "❌ Download Failed",
                 description: userFriendlyMsg,
                 variant: "destructive",
-                duration: 8000,
+                duration: 10000,
               });
             }
           }
@@ -164,7 +167,7 @@ export const useDownloads = () => {
       if (data.fallback) {
         toast({
           title: "⚠️ Limited Info Retrieved",
-          description: "Using basic video information. Quality selection will be validated during download.",
+          description: "Using basic video information. Download will verify quality availability.",
           duration: 4000,
         });
       } else {
@@ -242,12 +245,14 @@ export const useDownloads = () => {
     } catch (error) {
       console.error('Error starting download:', error);
       
-      // Enhanced error messaging
+      // Enhanced error messaging based on specific error types
       let userMessage = "Please try a different quality option or check your internet connection.";
-      if (error.message?.includes('yt-dlp')) {
+      if (error.message?.includes('downloader')) {
         userMessage = "Video downloader is temporarily unavailable. Please try again in a few minutes.";
       } else if (error.message?.includes('not available')) {
         userMessage = "This quality is not available for this video. Try a different quality option.";
+      } else if (error.message?.includes('timeout')) {
+        userMessage = "Request timed out. Please try again with a lower quality setting.";
       }
       
       toast({
@@ -285,13 +290,14 @@ export const useDownloads = () => {
       console.log('File blob received, size:', blob.size, 'type:', blob.type);
 
       // Enhanced file validation on client side
-      if (blob.size < 10000) { // Less than 10KB is likely corrupted
+      if (blob.size < 1024) { // Less than 1KB is definitely corrupted
         toast({
-          title: "⚠️ Suspicious File Size",
-          description: "The downloaded file seems unusually small. It may be corrupted. Please try downloading again.",
+          title: "❌ Corrupted File Detected",
+          description: "The downloaded file is corrupted (less than 1KB). Please try downloading again with a different quality setting.",
           variant: "destructive",
-          duration: 8000,
+          duration: 10000,
         });
+        return;
       }
 
       let extension = 'mp4';
