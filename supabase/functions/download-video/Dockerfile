@@ -17,7 +17,7 @@ RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --upgrade pip && pip install yt-dlp
 
-# Verify installations
+# Verify installations and create health check
 RUN yt-dlp --version && ffmpeg -version
 
 # Set working directory
@@ -28,6 +28,10 @@ COPY . .
 
 # Cache dependencies
 RUN deno cache index.ts
+
+# Create health check script
+RUN echo '#!/bin/bash\nyt-dlp --version && echo "yt-dlp OK" || echo "yt-dlp FAILED"' > /app/health-check.sh
+RUN chmod +x /app/health-check.sh
 
 # Run the function
 CMD ["deno", "run", "--allow-all", "index.ts"]

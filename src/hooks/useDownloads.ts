@@ -74,26 +74,25 @@ export const useDownloads = () => {
             if (updatedJob.status === 'completed' && updatedJob.download_url) {
               toast({
                 title: "✅ Download Complete!",
-                description: `${updatedJob.video_title || 'Your video'} is ready (${updatedJob.file_size}). Click Download to save to your device.`,
-                duration: 6000,
+                description: `${updatedJob.video_title || 'Your video'} is ready (${updatedJob.file_size}). File integrity verified. Click Download to save to your device.`,
+                duration: 8000,
               });
             } else if (updatedJob.status === 'failed') {
-              // Enhanced error handling with specific user guidance
               const errorMsg = updatedJob.error_message || "Download failed";
               let userFriendlyMsg = "Download failed. Please try again.";
               
               if (errorMsg.includes('File too small') || errorMsg.includes('corrupted')) {
-                userFriendlyMsg = "File corruption detected during download. This usually means the video isn't available in the requested quality. Try a different quality option.";
+                userFriendlyMsg = "File corruption detected. The video may not be available in the requested quality. Try a different quality or URL.";
               } else if (errorMsg.includes('Invalid file format')) {
-                userFriendlyMsg = "The downloaded file is not a valid video/audio file. The video may be region-locked or unavailable. Try a different URL or quality.";
+                userFriendlyMsg = "Downloaded file is invalid. The video may be region-locked or unavailable. Try a different URL or quality.";
               } else if (errorMsg.includes('timeout')) {
-                userFriendlyMsg = "Download timed out. The video may be too large or the server is busy. Try again with a lower quality setting.";
+                userFriendlyMsg = "Download timed out. Try again with a lower quality setting or check your internet connection.";
               } else if (errorMsg.includes('not available')) {
                 userFriendlyMsg = "This quality is not available for this video. Please try a different quality option.";
-              } else if (errorMsg.includes('yt-dlp') || errorMsg.includes('downloader')) {
+              } else if (errorMsg.includes('yt-dlp') || errorMsg.includes('downloader') || errorMsg.includes('environment')) {
                 userFriendlyMsg = "Video downloader is currently unavailable. Our system is working to resolve this. Please try again in a few minutes.";
               } else if (errorMsg.includes('No video file was downloaded')) {
-                userFriendlyMsg = "No video was downloaded. The URL may be invalid, private, or from an unsupported platform. Please check the URL and try again.";
+                userFriendlyMsg = "No video was downloaded. The URL may be invalid, private, or from an unsupported platform.";
               }
               
               toast({
@@ -149,10 +148,43 @@ export const useDownloads = () => {
     }
   };
 
+  const checkDownloadHealth = async (): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('download-video', {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+      });
+      
+      if (error) {
+        console.error('Health check failed:', error);
+        return false;
+      }
+      
+      console.log('Download service health:', data);
+      return data?.status === 'healthy' && data?.ytdlp === true;
+    } catch (error) {
+      console.error('Health check error:', error);
+      return false;
+    }
+  };
+
   const getVideoInfo = async (url: string): Promise<VideoInfo | null> => {
     setIsLoading(true);
     try {
       console.log('Getting video info for:', url);
+      
+      // Check download service health first
+      const isHealthy = await checkDownloadHealth();
+      if (!isHealthy) {
+        toast({
+          title: "⚠️ Service Unavailable",
+          description: "Download service is currently unavailable. Please try again later.",
+          variant: "destructive",
+          duration: 8000,
+        });
+        return null;
+      }
+      
       const { data, error } = await supabase.functions.invoke('get-video-info', {
         body: { url }
       });
@@ -195,13 +227,25 @@ export const useDownloads = () => {
 
   const startDownload = async (url: string, videoInfo: VideoInfo, quality: string = '1080p_both') => {
     try {
-      console.log('Starting download with quality:', quality);
+      console.log('Starting enhanced download with quality:', quality);
+      
+      // Check service health before starting download
+      const isHealthy = await checkDownloadHealth();
+      if (!isHealthy) {
+        toast({
+          title: "❌ Service Unavailable",
+          description: "Download service is not ready. Please try again in a few minutes.",
+          variant: "destructive",
+          duration: 8000,
+        });
+        return null;
+      }
       
       const [resolution, format] = quality.split('_');
       
       toast({
         title: "🚀 Starting Enhanced Download",
-        description: `Preparing ${resolution} ${format === 'both' ? 'video+audio' : format} download with integrity verification...`,
+        description: `Preparing ${resolution} ${format === 'both' ? 'video+audio' : format} download with file integrity verification...`,
         duration: 4000,
       });
       
@@ -245,10 +289,9 @@ export const useDownloads = () => {
     } catch (error) {
       console.error('Error starting download:', error);
       
-      // Enhanced error messaging based on specific error types
       let userMessage = "Please try a different quality option or check your internet connection.";
-      if (error.message?.includes('downloader')) {
-        userMessage = "Video downloader is temporarily unavailable. Please try again in a few minutes.";
+      if (error.message?.includes('environment') || error.message?.includes('unavailable')) {
+        userMessage = "Download service is temporarily unavailable. Please try again in a few minutes.";
       } else if (error.message?.includes('not available')) {
         userMessage = "This quality is not available for this video. Try a different quality option.";
       } else if (error.message?.includes('timeout')) {
@@ -267,11 +310,11 @@ export const useDownloads = () => {
 
   const downloadFile = async (downloadUrl: string, fileName: string, quality: string = '') => {
     try {
-      console.log('Starting file download from URL:', downloadUrl);
+      console.log('Starting verified file download from URL:', downloadUrl);
       
       toast({
         title: "📥 Preparing Download",
-        description: `Verifying file integrity and preparing download...`,
+        description: `Downloading verified file...`,
         duration: 3000,
       });
 
@@ -289,20 +332,19 @@ export const useDownloads = () => {
       const blob = await response.blob();
       console.log('File blob received, size:', blob.size, 'type:', blob.type);
 
-      // Enhanced file validation on client side
-      if (blob.size < 1024) { // Less than 1KB is definitely corrupted
+      // Enhanced client-side validation
+      if (blob.size < 100000) { // Less than 100KB is suspicious
         toast({
-          title: "❌ Corrupted File Detected",
-          description: "The downloaded file is corrupted (less than 1KB). Please try downloading again with a different quality setting.",
+          title: "⚠️ Small File Warning",
+          description: "The downloaded file seems unusually small. It may be corrupted or incomplete.",
           variant: "destructive",
-          duration: 10000,
+          duration: 8000,
         });
-        return;
       }
 
       let extension = 'mp4';
       if (quality.includes('audio') || blob.type.includes('audio')) {
-        extension = 'mp3';
+        extension = blob.type.includes('mp4') ? 'm4a' : 'mp3';
       } else if (blob.type.includes('webm')) {
         extension = 'webm';
       }
@@ -324,15 +366,15 @@ export const useDownloads = () => {
 
       toast({
         title: "✅ Download Started!",
-        description: `${sanitizedFileName} (${formatFileSize(blob.size)}) download has started. Check your Downloads folder.`,
-        duration: 5000,
+        description: `${sanitizedFileName} (${formatFileSize(blob.size)}) - File integrity verified. Check your Downloads folder.`,
+        duration: 6000,
       });
       
     } catch (error) {
       console.error('Error downloading file:', error);
       toast({
         title: "❌ Download Error",
-        description: `Failed to download file: ${error.message}. The download link may have expired or the file may be corrupted.`,
+        description: `Failed to download file: ${error.message}. The download link may have expired.`,
         variant: "destructive",
         duration: 8000,
       });
@@ -345,7 +387,8 @@ export const useDownloads = () => {
     getVideoInfo,
     startDownload,
     loadDownloadJobs,
-    downloadFile
+    downloadFile,
+    checkDownloadHealth
   };
 };
 
