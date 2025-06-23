@@ -35,103 +35,79 @@ export const useDownloads = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    let reconnectTimer: NodeJS.Timeout;
+    console.log('Setting up realtime subscription...');
     
-    const setupRealtimeSubscription = () => {
-      console.log('Setting up realtime subscription...');
-      
-      // Subscribe to realtime updates for download jobs
-      const channel = supabase
-        .channel('download-jobs-changes')
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'download_jobs'
-          },
-          (payload) => {
-            console.log('Real-time download job update:', payload);
-            
-            if (payload.eventType === 'INSERT') {
-              const newJob = payload.new as DownloadJob;
-              setDownloadJobs(prev => {
-                // Avoid duplicates
-                if (prev.find(job => job.id === newJob.id)) return prev;
-                return [newJob, ...prev];
-              });
-              
-            } else if (payload.eventType === 'UPDATE') {
-              const updatedJob = payload.new as DownloadJob;
-              
-              setDownloadJobs(prev => 
-                prev.map(job => 
-                  job.id === updatedJob.id ? updatedJob : job
-                )
-              );
-              
-              // Enhanced completion notifications
-              if (updatedJob.status === 'completed' && updatedJob.download_url) {
-                const formatText = getFormatText(updatedJob.quality);
-                toast({
-                  title: "Download Complete! 🎉",
-                  description: `${updatedJob.video_title || 'Your video'} (${formatText}) is ready for download.`,
-                });
-                
-                // Optional: Auto-trigger download after a delay
-                setTimeout(() => {
-                  if (updatedJob.download_url) {
-                    console.log('Auto-downloading completed file');
-                  }
-                }, 2000);
-                
-              } else if (updatedJob.status === 'failed') {
-                toast({
-                  title: "Download Failed ❌",
-                  description: updatedJob.error_message || "An error occurred during download",
-                  variant: "destructive"
-                });
-              } else if (updatedJob.status === 'downloading' && updatedJob.progress > 0) {
-                // Show progress updates for significant milestones
-                const progress = Math.round(updatedJob.progress);
-                if (progress % 25 === 0 && progress > 0 && progress < 100) {
-                  console.log(`Download progress: ${progress}%`);
-                }
-              }
-              
-            } else if (payload.eventType === 'DELETE') {
-              setDownloadJobs(prev => prev.filter(job => job.id !== payload.old.id));
-            }
-          }
-        )
-        .subscribe((state) => {
-          console.log('Subscription state:', state);
+    // Subscribe to realtime updates with proper error handling
+    const channel = supabase
+      .channel('download_jobs_channel', {
+        config: {
+          broadcast: { self: false }
+        }
+      })
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'download_jobs'
+        },
+        (payload) => {
+          console.log('Real-time update received:', payload);
           
-          if (state === 'SUBSCRIBED') {
-            console.log('Successfully subscribed to real-time updates');
-            if (reconnectTimer) {
-              clearTimeout(reconnectTimer);
+          if (payload.eventType === 'INSERT') {
+            const newJob = payload.new as DownloadJob;
+            setDownloadJobs(prev => {
+              const exists = prev.find(job => job.id === newJob.id);
+              if (exists) return prev;
+              return [newJob, ...prev];
+            });
+            
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedJob = payload.new as DownloadJob;
+            
+            setDownloadJobs(prev => 
+              prev.map(job => 
+                job.id === updatedJob.id ? updatedJob : job
+              )
+            );
+            
+            // Show completion notification
+            if (updatedJob.status === 'completed' && updatedJob.download_url) {
+              toast({
+                title: "Download Complete! 🎉",
+                description: `${updatedJob.video_title || 'Your video'} is ready for download.`,
+              });
+            } else if (updatedJob.status === 'failed') {
+              toast({
+                title: "Download Failed ❌",
+                description: updatedJob.error_message || "Download failed. Please try again.",
+                variant: "destructive"
+              });
             }
-          } else if (state === 'CLOSED') {
-            console.log('Real-time connection closed, attempting to reconnect...');
-            reconnectTimer = setTimeout(() => {
-              setupRealtimeSubscription();
-            }, 5000);
           }
-        });
+        }
+      )
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully connected to real-time updates');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('Real-time subscription error');
+          // Retry connection after 3 seconds
+          setTimeout(() => {
+            console.log('Retrying real-time connection...');
+            channel.unsubscribe();
+            // Will be handled by component remount or manual retry
+          }, 3000);
+        }
+      });
 
-      return channel;
-    };
-
-    const channel = setupRealtimeSubscription();
-    
-    // Load existing download jobs
+    // Load initial data
     loadDownloadJobs();
 
+    // Cleanup
     return () => {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-      }
+      console.log('Cleaning up real-time subscription');
       supabase.removeChannel(channel);
     };
   }, []);
@@ -145,7 +121,10 @@ export const useDownloads = () => {
         .order('created_at', { ascending: false })
         .limit(20);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error loading jobs:', error);
+        throw error;
+      }
       
       const typedData: DownloadJob[] = (data || []).map(job => ({
         ...job,
@@ -156,6 +135,11 @@ export const useDownloads = () => {
       setDownloadJobs(typedData);
     } catch (error) {
       console.error('Error loading download jobs:', error);
+      toast({
+        title: "Error loading downloads",
+        description: "Failed to load download history",
+        variant: "destructive"
+      });
     }
   };
 
@@ -167,14 +151,18 @@ export const useDownloads = () => {
         body: { url }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Video info error:', error);
+        throw error;
+      }
+      
       console.log('Video info received:', data);
       return data;
     } catch (error) {
       console.error('Error getting video info:', error);
       toast({
         title: "Unable to fetch video info",
-        description: "Please check the URL and try again. Make sure the video is publicly accessible.",
+        description: "Please check the URL and try again.",
         variant: "destructive"
       });
       return null;
@@ -187,6 +175,7 @@ export const useDownloads = () => {
     try {
       console.log('Starting download with quality:', quality);
       
+      // Create job in database
       const { data: job, error: jobError } = await supabase
         .from('download_jobs')
         .insert({
@@ -202,11 +191,16 @@ export const useDownloads = () => {
         .select()
         .single();
 
-      if (jobError) throw jobError;
+      if (jobError) {
+        console.error('Job creation error:', jobError);
+        throw jobError;
+      }
 
       console.log('Download job created:', job.id);
 
-      const { error: downloadError } = await supabase.functions.invoke('download-video', {
+      // Start download process
+      console.log('Calling download function...');
+      const { data: downloadResponse, error: downloadError } = await supabase.functions.invoke('download-video', {
         body: { 
           url, 
           quality, 
@@ -214,12 +208,16 @@ export const useDownloads = () => {
         }
       });
 
-      if (downloadError) throw downloadError;
+      if (downloadError) {
+        console.error('Download function error:', downloadError);
+        throw downloadError;
+      }
 
-      const formatText = getFormatText(quality);
+      console.log('Download function response:', downloadResponse);
+
       toast({
         title: "Download Started 🚀",
-        description: `${videoInfo.title} (${formatText}) download has begun. You'll be notified when it's ready.`,
+        description: `${videoInfo.title} download has begun. You'll see progress updates in real-time.`,
       });
 
       return job.id;
@@ -227,7 +225,7 @@ export const useDownloads = () => {
       console.error('Error starting download:', error);
       toast({
         title: "Download Failed to Start",
-        description: "Please try again. If the problem persists, check your internet connection.",
+        description: error.message || "Please try again.",
         variant: "destructive"
       });
       return null;
@@ -238,44 +236,35 @@ export const useDownloads = () => {
     try {
       console.log('Starting file download:', fileName);
       
-      const formatText = getFormatText(quality);
       toast({
         title: "Preparing Download 📥",
-        description: `Getting your ${formatText} file ready...`,
+        description: `Getting your file ready...`,
       });
 
-      // Fetch the file from the signed URL
       const response = await fetch(downloadUrl);
       
       if (!response.ok) {
         throw new Error(`Failed to fetch file: ${response.statusText}`);
       }
 
-      // Get the file as a blob
       const blob = await response.blob();
       
-      // Determine file extension based on quality/format
+      // Determine file extension based on format
       let extension = 'mp4';
       if (quality.includes('audio')) {
         extension = 'mp3';
-      } else if (quality.includes('video')) {
-        extension = 'mp4';
       }
       
-      // Create a safe filename
       const sanitizedFileName = `${fileName.replace(/[^a-zA-Z0-9\s-_()]/g, '')}.${extension}`;
       
-      // Create a blob URL and trigger download
+      // Create download link
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = blobUrl;
       link.download = sanitizedFileName;
       
-      // Add to DOM temporarily and click
       document.body.appendChild(link);
       link.click();
-      
-      // Clean up
       document.body.removeChild(link);
       window.URL.revokeObjectURL(blobUrl);
 
@@ -288,17 +277,10 @@ export const useDownloads = () => {
       console.error('Error downloading file:', error);
       toast({
         title: "Download Error",
-        description: "The download link may have expired. Please try downloading the video again.",
+        description: "Failed to download file. Please try again.",
         variant: "destructive"
       });
     }
-  };
-
-  // Helper function to get user-friendly format text
-  const getFormatText = (quality: string): string => {
-    if (quality.includes('audio')) return 'Audio Only (MP3)';
-    if (quality.includes('video')) return 'Video Only (MP4)';
-    return 'Video + Audio (MP4)';
   };
 
   return {
