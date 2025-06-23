@@ -26,7 +26,7 @@ interface VideoInfo {
   duration: string;
   uploader: string;
   view_count: string;
-  formats?: any[]; // Made optional to match VideoData
+  formats?: any[];
   platform?: string;
   available_qualities?: string[];
   has_audio?: boolean;
@@ -41,7 +41,6 @@ export const useDownloads = () => {
   useEffect(() => {
     console.log('Setting up realtime subscription for downloads...');
     
-    // Subscribe to realtime updates
     const channel = supabase
       .channel('download_jobs_updates')
       .on(
@@ -71,7 +70,6 @@ export const useDownloads = () => {
               )
             );
             
-            // Enhanced completion notifications
             if (updatedJob.status === 'completed' && updatedJob.download_url) {
               toast({
                 title: "✅ Download Complete!",
@@ -93,7 +91,6 @@ export const useDownloads = () => {
         console.log('Download subscription status:', status);
       });
 
-    // Load initial data
     loadDownloadJobs();
 
     return () => {
@@ -148,7 +145,6 @@ export const useDownloads = () => {
       
       console.log('Video info received:', data);
       
-      // Show validation status
       if (data.fallback) {
         toast({
           title: "⚠️ Limited Info Retrieved",
@@ -190,7 +186,6 @@ export const useDownloads = () => {
         duration: 3000,
       });
       
-      // Create job in database
       const { data: job, error: jobError } = await supabase
         .from('download_jobs')
         .insert({
@@ -213,7 +208,6 @@ export const useDownloads = () => {
 
       console.log('Download job created:', job.id);
 
-      // Start download process
       const { data: downloadResponse, error: downloadError } = await supabase.functions.invoke('download-video', {
         body: { 
           url, 
@@ -225,7 +219,6 @@ export const useDownloads = () => {
       if (downloadError) {
         console.error('Download function error:', downloadError);
         
-        // Enhanced error handling
         if (downloadError.message?.includes('not available')) {
           toast({
             title: "❌ Quality Not Available",
@@ -245,7 +238,6 @@ export const useDownloads = () => {
       }
 
       console.log('Download function response:', downloadResponse);
-
       return job.id;
     } catch (error) {
       console.error('Error starting download:', error);
@@ -261,7 +253,7 @@ export const useDownloads = () => {
 
   const downloadFile = async (downloadUrl: string, fileName: string, quality: string = '') => {
     try {
-      console.log('Starting file download:', fileName);
+      console.log('Starting file download from URL:', downloadUrl);
       
       toast({
         title: "📥 Preparing Download",
@@ -269,25 +261,41 @@ export const useDownloads = () => {
         duration: 2000,
       });
 
-      // Create a temporary link to trigger download
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      
-      // Determine file extension based on format
+      const response = await fetch(downloadUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': '*/*',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      console.log('File blob received, size:', blob.size, 'type:', blob.type);
+
       let extension = 'mp4';
-      if (quality.includes('audio')) {
+      if (quality.includes('audio') || blob.type.includes('audio')) {
         extension = 'mp3';
+      } else if (blob.type.includes('webm')) {
+        extension = 'webm';
       }
       
       const sanitizedFileName = `${fileName.replace(/[^a-zA-Z0-9\s-_()]/g, '')}.${extension}`;
-      link.download = sanitizedFileName;
       
-      // Trigger download
+      const link = document.createElement('a');
+      link.href = window.URL.createObjectURL(blob);
+      link.download = sanitizedFileName;
+      link.style.display = 'none';
+      
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      
+      setTimeout(() => {
+        window.URL.revokeObjectURL(link.href);
+      }, 1000);
 
       toast({
         title: "✅ Download Started!",
@@ -299,7 +307,7 @@ export const useDownloads = () => {
       console.error('Error downloading file:', error);
       toast({
         title: "❌ Download Error",
-        description: "Failed to start download. Please try again or check if the file is still available.",
+        description: `Failed to download file: ${error.message}. The download link may have expired.`,
         variant: "destructive",
         duration: 6000,
       });
