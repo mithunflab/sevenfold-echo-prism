@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, Play, Video, FileVideo, Loader2, CheckCircle, AlertCircle, Youtube, Music, Film, ExternalLink, Shield } from 'lucide-react';
+import { Download, Play, Video, FileVideo, Loader2, CheckCircle, AlertCircle, Youtube, Music, Film, ExternalLink, Shield, Clock, User, Eye } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -147,8 +147,13 @@ const VideoDownloader = () => {
 
   // Get completed downloads (show last 5)
   const completedDownloads = downloadJobs
-    .filter(job => job.status === 'completed')
+    .filter(job => job.status === 'completed' && job.download_url)
     .slice(0, 5);
+
+  // Get failed downloads for debugging
+  const failedDownloads = downloadJobs
+    .filter(job => job.status === 'failed')
+    .slice(0, 2);
 
   // Detect platform from URL
   const detectPlatform = (url: string) => {
@@ -195,14 +200,14 @@ const VideoDownloader = () => {
   const handleDownload = async () => {
     if (!videoData) return;
     
-    console.log('Starting enhanced download with format:', selectedFormat, 'quality:', selectedQuality);
+    console.log('Starting download with format:', selectedFormat, 'quality:', selectedQuality);
     
-    // Enhanced validation feedback
     const qualityWithFormat = `${selectedQuality}_${selectedFormat}`;
     const jobId = await startDownload(url, videoData, qualityWithFormat);
     if (jobId) {
       setVideoData(null);
       setUrl('');
+      setError('');
     }
   };
 
@@ -473,9 +478,8 @@ const VideoDownloader = () => {
                 className="w-full h-16 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold text-lg rounded-xl transition-all duration-300 transform hover:scale-105 relative overflow-hidden"
               >
                 <div className="absolute inset-0 bg-white/10 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
-                <Shield className="w-6 h-6 mr-3" />
+                <Download className="w-6 h-6 mr-3" />
                 Download {selectedFormat === 'audio' ? 'Audio' : selectedFormat === 'video' ? 'Video' : 'Video + Audio'} ({selectedQuality})
-                <span className="ml-2 text-sm opacity-80">- Format Validated</span>
               </Button>
             )}
 
@@ -499,26 +503,30 @@ const VideoDownloader = () => {
                       </span>
                     </div>
                     <span className="text-blue-400 font-bold text-xl">
-                      {currentDownload.progress.toFixed(1)}%
+                      {currentDownload.progress?.toFixed(1) || 0}%
                     </span>
                   </div>
                   
                   <div className="flex items-center space-x-4 mb-6">
-                    <img 
-                      src={currentDownload.video_thumbnail || ''} 
-                      alt={currentDownload.video_title || 'Video'}
-                      className="w-20 h-14 object-cover rounded-lg"
-                    />
+                    {currentDownload.video_thumbnail && (
+                      <img 
+                        src={currentDownload.video_thumbnail} 
+                        alt={currentDownload.video_title || 'Video'}
+                        className="w-20 h-14 object-cover rounded-lg"
+                      />
+                    )}
                     <div className="flex-1">
                       <h4 className="text-white font-medium text-lg mb-1 truncate">
-                        {currentDownload.video_title}
+                        {currentDownload.video_title || 'Processing video...'}
                       </h4>
                       <p className="text-gray-300 text-sm mb-2">
-                        {currentDownload.video_uploader} • {formatOptions.find(f => currentDownload.quality.includes(f.value))?.label || 'Processing'}
+                        {currentDownload.video_uploader && `${currentDownload.video_uploader} • `}
+                        {formatOptions.find(f => currentDownload.quality?.includes(f.value))?.label || 'Processing'}
                       </p>
                       <div className="flex items-center gap-4 text-sm text-white/70">
-                        <span>Speed: {currentDownload.download_speed || 'Calculating...'}</span>
-                        <span>ETA: {currentDownload.eta || 'Calculating...'}</span>
+                        <span>{currentDownload.download_speed || 'Initializing...'}</span>
+                        <span>•</span>
+                        <span>{currentDownload.eta || 'Calculating...'}</span>
                       </div>
                     </div>
                   </div>
@@ -528,18 +536,32 @@ const VideoDownloader = () => {
                     <div className="w-full bg-black/30 rounded-full h-4 overflow-hidden">
                       <motion.div
                         initial={{ width: 0 }}
-                        animate={{ width: `${currentDownload.progress}%` }}
+                        animate={{ width: `${currentDownload.progress || 0}%` }}
                         className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-green-500 rounded-full relative"
                         transition={{ duration: 0.5, ease: "easeOut" }}
                       >
                         <div className="absolute inset-0 bg-white/20 animate-pulse rounded-full"></div>
-                        <div className="absolute right-0 top-0 h-full w-8 bg-white/30 rounded-full transform translate-x-2 animate-bounce"></div>
                       </motion.div>
+                    </div>
+                    <div className="text-center text-sm text-white/60">
+                      Download in progress - Your file will be ready soon!
                     </div>
                   </div>
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Failed Downloads Debug Info */}
+            {failedDownloads.length > 0 && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+                <h4 className="text-red-400 font-medium mb-2">Recent Failed Downloads:</h4>
+                {failedDownloads.map((job) => (
+                  <div key={job.id} className="text-sm text-red-300 mb-1">
+                    {job.video_title}: {job.error_message}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Enhanced Completed Downloads */}
@@ -558,30 +580,35 @@ const VideoDownloader = () => {
                   <div key={job.id} className="bg-black/20 rounded-xl p-4 border border-green-400/20 hover:border-green-400/40 transition-colors">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-4">
-                        <img 
-                          src={job.video_thumbnail || ''} 
-                          alt={job.video_title || 'Video'}
-                          className="w-16 h-12 object-cover rounded-lg"
-                        />
+                        {job.video_thumbnail && (
+                          <img 
+                            src={job.video_thumbnail} 
+                            alt={job.video_title || 'Video'}
+                            className="w-16 h-12 object-cover rounded-lg"
+                          />
+                        )}
                         <div className="flex-1">
                           <h4 className="text-white font-medium text-lg mb-1 truncate max-w-xs">
-                            {job.video_title}
+                            {job.video_title || 'Downloaded Video'}
                           </h4>
                           <div className="flex items-center gap-3 text-sm text-gray-300">
-                            <span>{job.file_size}</span>
+                            <span>{job.file_size || 'Unknown size'}</span>
                             <span>•</span>
-                            <span>{formatOptions.find(f => job.quality.includes(f.value))?.label || job.quality}</span>
+                            <span>{formatOptions.find(f => job.quality?.includes(f.value))?.label || job.quality}</span>
                             <span>•</span>
-                            <span className="text-green-400">✓ Complete</span>
+                            <span className="text-green-400 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" />
+                              Ready
+                            </span>
                           </div>
                         </div>
                       </div>
                       <Button
-                        onClick={() => job.download_url && downloadFile(job.download_url, job.video_title || 'video', job.quality)}
+                        onClick={() => job.download_url && downloadFile(job.download_url, job.video_title || 'video', job.quality || '')}
                         className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white px-6 py-3 rounded-lg transition-all transform hover:scale-105"
                       >
                         <Download className="w-4 h-4 mr-2" />
-                        Download
+                        Download to Device
                       </Button>
                     </div>
                   </div>

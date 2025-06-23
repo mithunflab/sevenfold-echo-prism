@@ -39,15 +39,11 @@ export const useDownloads = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    console.log('Setting up enhanced realtime subscription...');
+    console.log('Setting up realtime subscription for downloads...');
     
-    // Subscribe to realtime updates with proper error handling
+    // Subscribe to realtime updates
     const channel = supabase
-      .channel('download_jobs_channel', {
-        config: {
-          broadcast: { self: false }
-        }
-      })
+      .channel('download_jobs_updates')
       .on(
         'postgres_changes',
         {
@@ -56,7 +52,7 @@ export const useDownloads = () => {
           table: 'download_jobs'
         },
         (payload) => {
-          console.log('Real-time update received:', payload);
+          console.log('Real-time download update:', payload.eventType, payload);
           
           if (payload.eventType === 'INSERT') {
             const newJob = payload.new as DownloadJob;
@@ -75,43 +71,33 @@ export const useDownloads = () => {
               )
             );
             
-            // Show completion notification
+            // Enhanced completion notifications
             if (updatedJob.status === 'completed' && updatedJob.download_url) {
               toast({
-                title: "Download Complete! 🎉",
-                description: `${updatedJob.video_title || 'Your video'} is ready for download.`,
+                title: "✅ Download Complete!",
+                description: `${updatedJob.video_title || 'Your video'} is ready. Click Download to save to your device.`,
+                duration: 5000,
               });
             } else if (updatedJob.status === 'failed') {
               toast({
-                title: "Download Failed ❌",
-                description: updatedJob.error_message || "Download failed. Please try again.",
-                variant: "destructive"
+                title: "❌ Download Failed",
+                description: updatedJob.error_message || "Download failed. Please try again with a different quality.",
+                variant: "destructive",
+                duration: 8000,
               });
             }
           }
         }
       )
       .subscribe((status) => {
-        console.log('Subscription status:', status);
-        if (status === 'SUBSCRIBED') {
-          console.log('Successfully connected to real-time updates');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('Real-time subscription error');
-          // Retry connection after 3 seconds
-          setTimeout(() => {
-            console.log('Retrying real-time connection...');
-            channel.unsubscribe();
-            // Will be handled by component remount or manual retry
-          }, 3000);
-        }
+        console.log('Download subscription status:', status);
       });
 
     // Load initial data
     loadDownloadJobs();
 
-    // Cleanup
     return () => {
-      console.log('Cleaning up real-time subscription');
+      console.log('Cleaning up download subscription');
       supabase.removeChannel(channel);
     };
   }, []);
@@ -150,7 +136,7 @@ export const useDownloads = () => {
   const getVideoInfo = async (url: string): Promise<VideoInfo | null> => {
     setIsLoading(true);
     try {
-      console.log('Getting enhanced video info for:', url);
+      console.log('Getting video info for:', url);
       const { data, error } = await supabase.functions.invoke('get-video-info', {
         body: { url }
       });
@@ -160,18 +146,20 @@ export const useDownloads = () => {
         throw error;
       }
       
-      console.log('Enhanced video info received:', data);
+      console.log('Video info received:', data);
       
-      // Show format validation info to user
+      // Show validation status
       if (data.fallback) {
         toast({
-          title: "Using Basic Info 📋",
-          description: "Real-time format detection unavailable. Quality selection will be validated during download.",
+          title: "⚠️ Limited Info Retrieved",
+          description: "Using basic video information. Quality selection will be validated during download.",
+          duration: 4000,
         });
       } else {
         toast({
-          title: "Real Video Info Retrieved! ✅",
-          description: `Found ${data.available_qualities?.length || 0} quality options. Format validation active.`,
+          title: "✅ Video Info Retrieved",
+          description: `Found video details and ${data.available_qualities?.length || 0} quality options.`,
+          duration: 3000,
         });
       }
       
@@ -179,9 +167,10 @@ export const useDownloads = () => {
     } catch (error) {
       console.error('Error getting video info:', error);
       toast({
-        title: "Unable to fetch video info",
+        title: "❌ Unable to fetch video info",
         description: "Please check the URL and try again. The platform may not be supported.",
-        variant: "destructive"
+        variant: "destructive",
+        duration: 6000,
       });
       return null;
     } finally {
@@ -191,14 +180,14 @@ export const useDownloads = () => {
 
   const startDownload = async (url: string, videoInfo: VideoInfo, quality: string = '1080p_both') => {
     try {
-      console.log('Starting enhanced download with quality:', quality);
+      console.log('Starting download with quality:', quality);
       
-      // Enhanced format validation warning
       const [resolution, format] = quality.split('_');
       
       toast({
-        title: "Validating Format 🔍",
-        description: `Checking if ${resolution} ${format === 'both' ? 'video+audio' : format} is available...`,
+        title: "🚀 Starting Download",
+        description: `Preparing ${resolution} ${format === 'both' ? 'video+audio' : format} download...`,
+        duration: 3000,
       });
       
       // Create job in database
@@ -222,10 +211,9 @@ export const useDownloads = () => {
         throw jobError;
       }
 
-      console.log('Enhanced download job created:', job.id);
+      console.log('Download job created:', job.id);
 
-      // Start download process with validation
-      console.log('Calling enhanced download function...');
+      // Start download process
       const { data: downloadResponse, error: downloadError } = await supabase.functions.invoke('download-video', {
         body: { 
           url, 
@@ -240,34 +228,32 @@ export const useDownloads = () => {
         // Enhanced error handling
         if (downloadError.message?.includes('not available')) {
           toast({
-            title: "Quality Not Available ⚠️",
+            title: "❌ Quality Not Available",
             description: `${resolution} quality not available. Try a different quality option.`,
-            variant: "destructive"
+            variant: "destructive",
+            duration: 6000,
           });
         } else {
           toast({
-            title: "Download Failed to Start",
+            title: "❌ Download Failed to Start",
             description: downloadError.message || "Please try again with a different quality.",
-            variant: "destructive"
+            variant: "destructive",
+            duration: 6000,
           });
         }
         throw downloadError;
       }
 
-      console.log('Enhanced download function response:', downloadResponse);
-
-      toast({
-        title: "Format Validated & Download Started! 🚀",
-        description: `${videoInfo.title} download has begun with ${resolution} ${format === 'both' ? 'video+audio' : format} format.`,
-      });
+      console.log('Download function response:', downloadResponse);
 
       return job.id;
     } catch (error) {
-      console.error('Error starting enhanced download:', error);
+      console.error('Error starting download:', error);
       toast({
-        title: "Download Failed to Start",
-        description: error.message || "Format validation failed. Please try a different quality option.",
-        variant: "destructive"
+        title: "❌ Download Failed to Start",
+        description: error.message || "Please try a different quality option or check your internet connection.",
+        variant: "destructive",
+        duration: 8000,
       });
       return null;
     }
@@ -278,17 +264,16 @@ export const useDownloads = () => {
       console.log('Starting file download:', fileName);
       
       toast({
-        title: "Preparing Download 📥",
-        description: `Getting your file ready...`,
+        title: "📥 Preparing Download",
+        description: `Getting your file ready for download...`,
+        duration: 2000,
       });
 
-      const response = await fetch(downloadUrl);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch file: ${response.statusText}`);
-      }
-
-      const blob = await response.blob();
+      // Create a temporary link to trigger download
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
       
       // Determine file extension based on format
       let extension = 'mp4';
@@ -297,29 +282,26 @@ export const useDownloads = () => {
       }
       
       const sanitizedFileName = `${fileName.replace(/[^a-zA-Z0-9\s-_()]/g, '')}.${extension}`;
-      
-      // Create download link
-      const blobUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = blobUrl;
       link.download = sanitizedFileName;
       
+      // Trigger download
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      window.URL.revokeObjectURL(blobUrl);
 
       toast({
-        title: "Download Complete! ✅",
-        description: `${sanitizedFileName} has been saved to your device.`,
+        title: "✅ Download Started!",
+        description: `${sanitizedFileName} download has started. Check your Downloads folder.`,
+        duration: 4000,
       });
       
     } catch (error) {
       console.error('Error downloading file:', error);
       toast({
-        title: "Download Error",
-        description: "Failed to download file. Please try again.",
-        variant: "destructive"
+        title: "❌ Download Error",
+        description: "Failed to start download. Please try again or check if the file is still available.",
+        variant: "destructive",
+        duration: 6000,
       });
     }
   };

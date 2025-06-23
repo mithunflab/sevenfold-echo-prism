@@ -26,40 +26,17 @@ serve(async (req) => {
       .from('download_jobs')
       .update({ 
         status: 'downloading',
-        progress: 0,
-        download_speed: 'Validating format...',
-        eta: 'Checking availability...'
+        progress: 5,
+        download_speed: 'Initializing...',
+        eta: 'Starting download process...'
       })
       .eq('id', jobId);
 
-    // Check yt-dlp availability
-    const ytDlpAvailable = await checkYtDlp();
-    console.log('yt-dlp available:', ytDlpAvailable);
-
-    if (!ytDlpAvailable) {
-      await supabase
-        .from('download_jobs')
-        .update({ 
-          status: 'failed',
-          error_message: 'Video downloader not available. Please try again later.',
-          progress: 0
-        })
-        .eq('id', jobId);
-      
-      return new Response(
-        JSON.stringify({ 
-          error: 'Download service temporarily unavailable',
-          details: 'yt-dlp not installed in environment'
-        }),
-        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Start async download process with enhanced format validation
-    downloadVideoWithValidation(url, quality, jobId, supabase);
+    // Start async download process
+    downloadVideoProcess(url, quality, jobId, supabase);
 
     return new Response(
-      JSON.stringify({ success: true, message: 'Download started with format validation' }),
+      JSON.stringify({ success: true, message: 'Download process started' }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
@@ -72,86 +49,65 @@ serve(async (req) => {
   }
 });
 
-async function checkYtDlp(): Promise<boolean> {
+async function downloadVideoProcess(url: string, quality: string, jobId: string, supabase: any) {
   try {
-    const process = new Deno.Command('yt-dlp', {
-      args: ['--version'],
-      stdout: 'piped',
-      stderr: 'piped'
-    });
-    const result = await process.output();
-    return result.success;
-  } catch (error) {
-    console.error('yt-dlp check failed:', error);
-    return false;
-  }
-}
-
-async function downloadVideoWithValidation(url: string, quality: string, jobId: string, supabase: any) {
-  try {
-    console.log('Processing download with validation for job:', jobId);
+    console.log('Processing download for job:', jobId);
     
     // Parse quality and format
     const [resolution, format] = quality.split('_');
     console.log('Parsed - Resolution:', resolution, 'Format:', format);
 
-    // Step 1: Validate available formats
-    await supabase
-      .from('download_jobs')
-      .update({ 
-        progress: 5,
-        download_speed: 'Checking available formats...',
-        eta: 'Validating quality options'
-      })
-      .eq('id', jobId);
-
-    const availableFormats = await getAvailableFormats(url);
-    const selectedFormat = await validateAndSelectFormat(availableFormats, resolution, format);
-    
-    if (!selectedFormat) {
-      throw new Error(`Requested quality ${resolution} in ${format} format is not available for this video`);
-    }
-
-    console.log('Selected format:', selectedFormat);
-
-    // Step 2: Update progress with validated format
+    // Update progress - format validation
     await supabase
       .from('download_jobs')
       .update({ 
         progress: 10,
-        download_speed: 'Format validated, starting download...',
-        eta: 'Beginning download process'
+        download_speed: 'Validating format...',
+        eta: 'Checking video availability'
       })
       .eq('id', jobId);
 
-    // Step 3: Build precise yt-dlp command
-    const ytDlpArgs = await buildPreciseDownloadCommand(url, selectedFormat, format);
-    console.log('Executing yt-dlp with validated args:', ytDlpArgs);
+    // Check if yt-dlp is available
+    const ytDlpAvailable = await checkYtDlp();
+    console.log('yt-dlp available:', ytDlpAvailable);
 
-    // Step 4: Execute download with real-time progress
+    if (!ytDlpAvailable) {
+      throw new Error('Video downloader not available in environment');
+    }
+
+    // Build yt-dlp command
+    const ytDlpArgs = buildDownloadCommand(url, resolution, format);
+    console.log('Executing yt-dlp with args:', ytDlpArgs);
+
+    // Update progress - starting download
+    await supabase
+      .from('download_jobs')
+      .update({ 
+        progress: 15,
+        download_speed: 'Starting download...',
+        eta: 'Connecting to video source'
+      })
+      .eq('id', jobId);
+
+    // Execute download with progress monitoring
     const process = new Deno.Command('yt-dlp', {
       args: ytDlpArgs,
       stdout: 'piped',
       stderr: 'piped',
-      env: {
-        'PATH': '/opt/venv/bin:/usr/local/bin:/usr/bin:/bin'
-      }
+      cwd: '/tmp'
     });
 
     const child = process.spawn();
-    await monitorDownloadProgress(child, supabase, jobId);
+    const downloadedFile = await monitorDownloadWithProgress(child, supabase, jobId);
 
-    // Step 5: Validate and process downloaded file
-    const downloadedFile = await findAndValidateDownloadedFile(format);
-    
     if (!downloadedFile) {
-      throw new Error('Downloaded file not found or validation failed');
+      throw new Error('Download failed - no file created');
     }
 
-    // Step 6: Upload and finalize
-    const downloadUrl = await uploadAndFinalize(downloadedFile, jobId, supabase, format);
+    // Upload to storage and finalize
+    await uploadAndComplete(downloadedFile, jobId, supabase, format);
     
-    console.log('Download completed successfully with validated format');
+    console.log('Download completed successfully for job:', jobId);
 
   } catch (error) {
     console.error('Download process failed:', error);
@@ -159,7 +115,7 @@ async function downloadVideoWithValidation(url: string, quality: string, jobId: 
       .from('download_jobs')
       .update({ 
         status: 'failed',
-        error_message: error.message || 'Download failed with format validation',
+        error_message: error.message || 'Download failed',
         progress: 0,
         download_speed: null,
         eta: null
@@ -168,88 +124,24 @@ async function downloadVideoWithValidation(url: string, quality: string, jobId: 
   }
 }
 
-async function getAvailableFormats(url: string): Promise<any[]> {
+async function checkYtDlp(): Promise<boolean> {
   try {
     const process = new Deno.Command('yt-dlp', {
-      args: [
-        '--list-formats',
-        '--no-warnings',
-        '--no-playlist',
-        url
-      ],
+      args: ['--version'],
       stdout: 'piped',
-      stderr: 'piped',
-      env: {
-        'PATH': '/opt/venv/bin:/usr/local/bin:/usr/bin:/bin'
-      }
+      stderr: 'piped'
     });
-
     const result = await process.output();
-    
-    if (!result.success) {
-      throw new Error('Failed to get available formats');
-    }
-
-    const output = new TextDecoder().decode(result.stdout);
-    console.log('Available formats retrieved successfully');
-    
-    // Parse the format list (simplified parsing)
-    const formats = [];
-    const lines = output.split('\n');
-    
-    for (const line of lines) {
-      if (line.includes('mp4') || line.includes('webm') || line.includes('mp3')) {
-        // Extract format info from yt-dlp output
-        const match = line.match(/(\d+)x(\d+).*?(\d+)p/);
-        if (match) {
-          formats.push({
-            height: parseInt(match[3]),
-            resolution: `${match[3]}p`,
-            available: true
-          });
-        }
-      }
-    }
-    
-    return formats;
+    console.log('yt-dlp version check result:', result.success);
+    return result.success;
   } catch (error) {
-    console.warn('Could not get detailed formats, using fallback');
-    return []; // Return empty array to trigger fallback
+    console.error('yt-dlp check failed:', error);
+    return false;
   }
 }
 
-async function validateAndSelectFormat(availableFormats: any[], requestedResolution: string, requestedFormat: string): Promise<any> {
-  console.log('Validating format - Requested:', requestedResolution, requestedFormat);
-  
-  // If no formats detected, allow download attempt (yt-dlp will handle best selection)
-  if (availableFormats.length === 0) {
-    console.log('No specific formats detected, allowing yt-dlp to select best');
-    return { resolution: requestedResolution, format: requestedFormat, validated: false };
-  }
-
-  // Check if requested resolution is available
-  const resolutionNumber = requestedResolution === '4K' ? 2160 : parseInt(requestedResolution.replace('p', ''));
-  const availableResolution = availableFormats.find(f => f.height === resolutionNumber);
-  
-  if (availableResolution) {
-    console.log('Exact format match found');
-    return { resolution: requestedResolution, format: requestedFormat, validated: true };
-  }
-
-  // Find closest available resolution
-  const sortedFormats = availableFormats.sort((a, b) => Math.abs(a.height - resolutionNumber) - Math.abs(b.height - resolutionNumber));
-  const closestFormat = sortedFormats[0];
-  
-  if (closestFormat) {
-    console.log('Using closest available format:', closestFormat);
-    return { resolution: `${closestFormat.height}p`, format: requestedFormat, validated: true, fallback: true };
-  }
-
-  return null; // No suitable format found
-}
-
-async function buildPreciseDownloadCommand(url: string, selectedFormat: any, format: string): Promise<string[]> {
-  let outputTemplate = '/tmp/%(title)s_%(id)s.%(ext)s';
+function buildDownloadCommand(url: string, resolution: string, format: string): string[] {
+  const outputTemplate = '/tmp/%(title)s_%(id)s.%(ext)s';
   
   let args = [
     '--no-warnings',
@@ -257,10 +149,11 @@ async function buildPreciseDownloadCommand(url: string, selectedFormat: any, for
     '--progress',
     '--no-playlist',
     '--socket-timeout', '30',
+    '--retries', '3',
     '--output', outputTemplate
   ];
 
-  // Precise format selection based on user choice and validation
+  // Format-specific arguments
   if (format === 'audio') {
     args.push(
       '--extract-audio',
@@ -269,14 +162,14 @@ async function buildPreciseDownloadCommand(url: string, selectedFormat: any, for
       '--format', 'bestaudio/best'
     );
   } else if (format === 'video') {
-    const maxHeight = selectedFormat.resolution === '4K' ? '2160' : selectedFormat.resolution.replace('p', '');
+    const maxHeight = resolution === '4K' ? '2160' : resolution.replace('p', '');
     args.push(
-      '--format', `bestvideo[height<=${maxHeight}][ext=mp4]/bestvideo[height<=${maxHeight}]/best[height<=${maxHeight}]`
+      '--format', `bestvideo[height<=${maxHeight}]/best[height<=${maxHeight}]`
     );
   } else { // both (video + audio)
-    const maxHeight = selectedFormat.resolution === '4K' ? '2160' : selectedFormat.resolution.replace('p', '');
+    const maxHeight = resolution === '4K' ? '2160' : resolution.replace('p', '');
     args.push(
-      '--format', `best[height<=${maxHeight}][ext=mp4]/best[height<=${maxHeight}]/best`
+      '--format', `best[height<=${maxHeight}]/best`
     );
   }
 
@@ -284,9 +177,10 @@ async function buildPreciseDownloadCommand(url: string, selectedFormat: any, for
   return args;
 }
 
-async function monitorDownloadProgress(child: any, supabase: any, jobId: string): Promise<void> {
+async function monitorDownloadWithProgress(child: any, supabase: any, jobId: string): Promise<any> {
   const decoder = new TextDecoder();
-  let downloadProgress = 10;
+  let downloadProgress = 15;
+  let downloadedFile = null;
 
   // Monitor stdout for progress
   const reader = child.stdout.getReader();
@@ -296,17 +190,17 @@ async function monitorDownloadProgress(child: any, supabase: any, jobId: string)
       if (done) break;
       
       const output = decoder.decode(value);
-      console.log('yt-dlp progress:', output);
+      console.log('yt-dlp output:', output);
       
-      // Enhanced progress parsing
+      // Parse progress
       const progressMatch = output.match(/\[download\]\s+(\d+\.?\d*)%/) || 
                            output.match(/(\d+\.?\d*)% of/) ||
                            output.match(/(\d+\.?\d*)%.*ETA/);
 
       if (progressMatch) {
-        const newProgress = Math.min(parseFloat(progressMatch[1]), 90);
+        const newProgress = Math.min(Math.max(parseFloat(progressMatch[1]), downloadProgress), 85);
         
-        if (newProgress > downloadProgress + 1) {
+        if (newProgress > downloadProgress + 2) {
           downloadProgress = newProgress;
           
           const speedMatch = output.match(/(\d+\.?\d*\w+\/s)/);
@@ -320,6 +214,15 @@ async function monitorDownloadProgress(child: any, supabase: any, jobId: string)
               eta: etaMatch ? etaMatch[1] : 'Calculating...'
             })
             .eq('id', jobId);
+        }
+      }
+
+      // Check for destination file info
+      if (output.includes('[download] Destination:')) {
+        const fileMatch = output.match(/\[download\] Destination: (.+)/);
+        if (fileMatch) {
+          downloadedFile = fileMatch[1].trim();
+          console.log('Download destination:', downloadedFile);
         }
       }
     }
@@ -346,96 +249,113 @@ async function monitorDownloadProgress(child: any, supabase: any, jobId: string)
   if (!status.success) {
     throw new Error(`Download failed: ${errorOutput}`);
   }
+
+  // If no specific file was detected, find the downloaded file
+  if (!downloadedFile) {
+    downloadedFile = await findDownloadedFile();
+  }
+
+  return downloadedFile;
 }
 
-async function findAndValidateDownloadedFile(format: string): Promise<{ name: string; path: string; size: number } | null> {
-  console.log('Finding and validating downloaded file...');
+async function findDownloadedFile(): Promise<string | null> {
+  console.log('Searching for downloaded files in /tmp');
   
-  const files = [];
-  for await (const dirEntry of Deno.readDir('/tmp')) {
-    if (dirEntry.isFile) {
-      const fileName = dirEntry.name;
-      const isTargetFormat = (
-        (format === 'audio' && fileName.endsWith('.mp3')) ||
-        (format !== 'audio' && (fileName.endsWith('.mp4') || fileName.endsWith('.webm')))
-      );
-      
-      if (isTargetFormat && !fileName.startsWith('.') && fileName.length > 10) {
-        const filePath = `/tmp/${fileName}`;
-        const fileInfo = await Deno.stat(filePath);
+  try {
+    const files = [];
+    for await (const dirEntry of Deno.readDir('/tmp')) {
+      if (dirEntry.isFile) {
+        const fileName = dirEntry.name;
         
-        files.push({
-          name: fileName,
-          path: filePath,
-          size: fileInfo.size
-        });
-        
-        console.log('Found file:', fileName, 'Size:', fileInfo.size);
+        // Look for video/audio files that aren't system files
+        if ((fileName.endsWith('.mp4') || fileName.endsWith('.webm') || fileName.endsWith('.mp3')) && 
+            !fileName.startsWith('.') && fileName.length > 10) {
+          
+          const filePath = `/tmp/${fileName}`;
+          const fileInfo = await Deno.stat(filePath);
+          
+          files.push({
+            name: fileName,
+            path: filePath,
+            size: fileInfo.size,
+            modified: fileInfo.mtime
+          });
+        }
       }
     }
-  }
 
-  if (files.length === 0) {
-    throw new Error('No downloaded file found matching requested format');
-  }
+    if (files.length === 0) {
+      console.log('No downloaded files found');
+      return null;
+    }
 
-  // Get the largest file (usually the best quality)
-  const selectedFile = files.sort((a, b) => b.size - a.size)[0];
-  
-  // Validate file is not empty and has reasonable size
-  if (selectedFile.size === 0) {
-    throw new Error('Downloaded file is empty');
-  }
-  
-  if (selectedFile.size < 1000) { // Less than 1KB is suspicious
-    throw new Error('Downloaded file is too small, may be corrupted');
-  }
+    // Get the most recently modified file with reasonable size
+    const selectedFile = files
+      .filter(f => f.size > 1000) // At least 1KB
+      .sort((a, b) => (b.modified?.getTime() || 0) - (a.modified?.getTime() || 0))[0];
 
-  console.log('File validation passed:', selectedFile);
-  return selectedFile;
+    console.log('Selected file:', selectedFile);
+    return selectedFile ? selectedFile.path : null;
+
+  } catch (error) {
+    console.error('Error finding downloaded file:', error);
+    return null;
+  }
 }
 
-async function uploadAndFinalize(file: any, jobId: string, supabase: any, format: string): Promise<string> {
-  // Read file
-  const fileData = await Deno.readFile(file.path);
-  
-  // Upload to Supabase Storage
-  const timestamp = Date.now();
-  const actualExtension = file.name.split('.').pop();
-  const storageFileName = `${format}_${jobId}_${timestamp}.${actualExtension}`;
-  
-  console.log('Uploading to storage:', storageFileName, 'Size:', file.size);
+async function uploadAndComplete(filePath: string, jobId: string, supabase: any, format: string) {
+  console.log('Uploading file:', filePath);
 
+  // Update progress - uploading
   await supabase
     .from('download_jobs')
     .update({ 
-      progress: 95,
+      progress: 90,
       download_speed: 'Uploading...',
-      eta: 'Final step'
+      eta: 'Almost done'
     })
     .eq('id', jobId);
+
+  // Read file
+  const fileData = await Deno.readFile(filePath);
+  const fileInfo = await Deno.stat(filePath);
   
+  // Generate storage filename
+  const timestamp = Date.now();
+  const fileName = filePath.split('/').pop() || 'download';
+  const extension = fileName.split('.').pop() || 'mp4';
+  const storageFileName = `${format}_${jobId}_${timestamp}.${extension}`;
+  
+  console.log('Uploading to storage:', storageFileName, 'Size:', fileInfo.size);
+
+  // Upload to Supabase Storage
   const { data: uploadData, error: uploadError } = await supabase.storage
     .from('downloads')
     .upload(storageFileName, fileData, {
-      contentType: getContentType(actualExtension),
+      contentType: getContentType(extension),
       upsert: true
     });
 
   if (uploadError) {
+    console.error('Upload error:', uploadError);
     throw new Error(`Upload failed: ${uploadError.message}`);
   }
 
-  // Generate download URL
-  const { data: urlData } = await supabase.storage
+  console.log('Upload successful:', uploadData);
+
+  // Generate signed URL (valid for 2 hours)
+  const { data: urlData, error: urlError } = await supabase.storage
     .from('downloads')
     .createSignedUrl(storageFileName, 7200);
 
-  if (!urlData?.signedUrl) {
+  if (urlError || !urlData?.signedUrl) {
+    console.error('URL generation error:', urlError);
     throw new Error('Failed to generate download URL');
   }
 
-  const formattedFileSize = formatFileSize(file.size);
+  console.log('Generated download URL:', urlData.signedUrl);
+
+  const formattedFileSize = formatFileSize(fileInfo.size);
   
   // Mark as completed
   await supabase
@@ -450,14 +370,13 @@ async function uploadAndFinalize(file: any, jobId: string, supabase: any, format
     })
     .eq('id', jobId);
 
-  // Clean up
+  // Clean up temp file
   try {
-    await Deno.remove(file.path);
+    await Deno.remove(filePath);
+    console.log('Cleaned up temp file:', filePath);
   } catch (cleanupError) {
     console.warn('Failed to clean up temp file:', cleanupError);
   }
-
-  return urlData.signedUrl;
 }
 
 function getContentType(extension: string): string {
@@ -466,6 +385,7 @@ function getContentType(extension: string): string {
     case 'mp3': return 'audio/mpeg';
     case 'mp4': return 'video/mp4';
     case 'webm': return 'video/webm';
+    case 'avi': return 'video/x-msvideo';
     default: return 'application/octet-stream';
   }
 }
