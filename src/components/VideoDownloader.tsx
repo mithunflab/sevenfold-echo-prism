@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -8,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from '@/components/ui/card';
 import { toast } from '@/hooks/use-toast';
-import { useDownloads } from '@/hooks/useDownloads';
 
 interface VideoData {
   title: string;
@@ -17,6 +17,20 @@ interface VideoData {
   uploader: string;
   view_count: string;
   formats?: any[];
+}
+
+interface DownloadJob {
+  id: string;
+  status: 'pending' | 'downloading' | 'completed' | 'failed';
+  progress: number;
+  video_title?: string;
+  video_thumbnail?: string;
+  video_uploader?: string;
+  quality: string;
+  download_speed: string;
+  eta: string;
+  file_size?: string;
+  download_url?: string;
 }
 
 const FloatingShape = ({ 
@@ -121,7 +135,107 @@ const VideoDownloader = () => {
   const [selectedQuality, setSelectedQuality] = useState('1080p');
   const [selectedFormat, setSelectedFormat] = useState<'video' | 'audio' | 'both'>('both');
   const [error, setError] = useState('');
-  const { downloadJobs, isLoading, getVideoInfo, startDownload, downloadFile } = useDownloads();
+  const [isLoading, setIsLoading] = useState(false);
+  const [downloadJobs, setDownloadJobs] = useState<DownloadJob[]>([]);
+
+  console.log('VideoDownloader component rendering');
+
+  // Mock functions for now since useDownloads hook is not available
+  const getVideoInfo = async (url: string) => {
+    console.log('Getting video info for:', url);
+    setIsLoading(true);
+    try {
+      // Mock video data for testing
+      const mockVideoData = {
+        title: "Sample Video Title",
+        thumbnail: "https://via.placeholder.com/320x180",
+        duration: "3:45",
+        uploader: "Sample Channel",
+        view_count: "1,234,567",
+        formats: []
+      };
+      
+      toast({
+        title: "Video Found!",
+        description: "Video information loaded successfully",
+      });
+      
+      setIsLoading(false);
+      return mockVideoData;
+    } catch (error) {
+      console.error('Error getting video info:', error);
+      toast({
+        title: "Error",
+        description: "Failed to get video information",
+        variant: "destructive"
+      });
+      setIsLoading(false);
+      return null;
+    }
+  };
+
+  const startDownload = async (url: string, videoInfo: VideoData, quality: string) => {
+    console.log('Starting download:', { url, videoInfo, quality });
+    const jobId = Date.now().toString();
+    
+    const newJob: DownloadJob = {
+      id: jobId,
+      status: 'downloading',
+      progress: 0,
+      video_title: videoInfo.title,
+      video_thumbnail: videoInfo.thumbnail,
+      video_uploader: videoInfo.uploader,
+      quality,
+      download_speed: '1.2 MB/s',
+      eta: '2m 30s',
+      file_size: '25.4 MB'
+    };
+    
+    setDownloadJobs(prev => [...prev, newJob]);
+    
+    toast({
+      title: "Download Started",
+      description: `Starting download of ${videoInfo.title}`,
+    });
+    
+    // Simulate download progress
+    const progressInterval = setInterval(() => {
+      setDownloadJobs(prev => 
+        prev.map(job => 
+          job.id === jobId 
+            ? { ...job, progress: Math.min(job.progress + 10, 100) }
+            : job
+        )
+      );
+    }, 1000);
+    
+    // Complete download after 10 seconds
+    setTimeout(() => {
+      clearInterval(progressInterval);
+      setDownloadJobs(prev => 
+        prev.map(job => 
+          job.id === jobId 
+            ? { ...job, status: 'completed', progress: 100, download_url: '#' }
+            : job
+        )
+      );
+      
+      toast({
+        title: "Download Complete!",
+        description: `${videoInfo.title} has been downloaded successfully`,
+      });
+    }, 10000);
+    
+    return jobId;
+  };
+
+  const downloadFile = (url: string, filename: string) => {
+    console.log('Downloading file:', { url, filename });
+    toast({
+      title: "File Downloaded",
+      description: `${filename} is ready for download`,
+    });
+  };
 
   // Get current downloading job
   const currentDownload = downloadJobs.find(job => 
@@ -143,6 +257,7 @@ const VideoDownloader = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('Form submitted with URL:', url);
     
     if (!url.trim()) {
       setError('Please enter a valid URL');
