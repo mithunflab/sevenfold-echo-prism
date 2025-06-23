@@ -18,6 +18,7 @@ interface DownloadJob {
   created_at: string;
   error_message: string | null;
   file_size?: string | null;
+  download_url?: string | null;
 }
 
 interface VideoInfo {
@@ -55,6 +56,24 @@ export const useDownloads = () => {
                 job.id === payload.new.id ? payload.new as DownloadJob : job
               )
             );
+            
+            // Show download completion notification
+            const updatedJob = payload.new as DownloadJob;
+            if (updatedJob.status === 'completed' && updatedJob.download_url) {
+              toast({
+                title: "Download Complete!",
+                description: "Your video is ready for download.",
+                action: (
+                  <button
+                    onClick={() => downloadFile(updatedJob.download_url!, updatedJob.video_title || 'video')}
+                    className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600"
+                  >
+                    Download
+                  </button>
+                ),
+              });
+            }
+            
           } else if (payload.eventType === 'DELETE') {
             setDownloadJobs(prev => prev.filter(job => job.id !== payload.old.id));
           }
@@ -80,7 +99,6 @@ export const useDownloads = () => {
 
       if (error) throw error;
       
-      // Type assertion to ensure proper typing
       const typedData: DownloadJob[] = (data || []).map(job => ({
         ...job,
         status: job.status as DownloadJob['status']
@@ -116,7 +134,6 @@ export const useDownloads = () => {
 
   const startDownload = async (url: string, videoInfo: VideoInfo, quality: string = '1080p_both') => {
     try {
-      // No queuing - start download immediately
       const { data: job, error: jobError } = await supabase
         .from('download_jobs')
         .insert({
@@ -133,7 +150,6 @@ export const useDownloads = () => {
 
       if (jobError) throw jobError;
 
-      // Start download process immediately
       const { error: downloadError } = await supabase.functions.invoke('download-video', {
         body: { 
           url, 
@@ -146,7 +162,7 @@ export const useDownloads = () => {
 
       toast({
         title: "Download Started",
-        description: "Your video download is starting now - no waiting in queue!",
+        description: "Your video download has started. You'll be notified when it's ready.",
       });
 
       return job.id;
@@ -161,11 +177,37 @@ export const useDownloads = () => {
     }
   };
 
+  const downloadFile = async (downloadUrl: string, fileName: string) => {
+    try {
+      // Create a temporary anchor element to trigger download
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `${fileName}.mp4`;
+      link.target = '_blank';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      toast({
+        title: "Download Started",
+        description: "File download has started in your browser.",
+      });
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      toast({
+        title: "Download Error",
+        description: "Failed to download the file. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   return {
     downloadJobs,
     isLoading,
     getVideoInfo,
     startDownload,
-    loadDownloadJobs
+    loadDownloadJobs,
+    downloadFile
   };
 };

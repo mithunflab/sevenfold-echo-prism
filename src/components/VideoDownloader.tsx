@@ -1,9 +1,8 @@
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, Play, Video, FileVideo, Loader2, CheckCircle, AlertCircle, Youtube, Music, Film } from 'lucide-react';
+import { Download, Play, Video, FileVideo, Loader2, CheckCircle, AlertCircle, Youtube, Music, Film, ExternalLink } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,12 +121,15 @@ const VideoDownloader = () => {
   const [selectedQuality, setSelectedQuality] = useState('1080p');
   const [selectedFormat, setSelectedFormat] = useState<'video' | 'audio' | 'both'>('both');
   const [error, setError] = useState('');
-  const { downloadJobs, isLoading, getVideoInfo, startDownload } = useDownloads();
+  const { downloadJobs, isLoading, getVideoInfo, startDownload, downloadFile } = useDownloads();
 
   // Get current downloading job
   const currentDownload = downloadJobs.find(job => 
     job.status === 'downloading' || job.status === 'pending'
   );
+
+  // Get completed downloads
+  const completedDownloads = downloadJobs.filter(job => job.status === 'completed');
 
   // Detect platform from URL
   const detectPlatform = (url: string) => {
@@ -144,6 +146,18 @@ const VideoDownloader = () => {
     
     if (!url.trim()) {
       setError('Please enter a valid URL');
+      return;
+    }
+
+    // Basic URL validation for supported platforms
+    const supportedPlatforms = [
+      'youtube.com', 'youtu.be', 'facebook.com', 'fb.watch',
+      'twitter.com', 'x.com', 'instagram.com', 'tiktok.com'
+    ];
+    
+    const isSupported = supportedPlatforms.some(platform => url.includes(platform));
+    if (!isSupported) {
+      setError('Please enter a URL from a supported platform');
       return;
     }
 
@@ -263,7 +277,7 @@ const VideoDownloader = () => {
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 1, duration: 0.8 }}
-          className="max-w-4xl mx-auto"
+          className="max-w-4xl mx-auto space-y-8"
         >
           <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl">
             {/* URL Input */}
@@ -456,6 +470,47 @@ const VideoDownloader = () => {
               )}
             </AnimatePresence>
           </div>
+
+          {/* Completed Downloads */}
+          {completedDownloads.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl"
+            >
+              <h3 className="text-white font-semibold text-xl mb-6">Ready for Download</h3>
+              <div className="space-y-4">
+                {completedDownloads.map((job) => (
+                  <div key={job.id} className="bg-black/30 rounded-xl p-4 border border-white/10">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <img 
+                          src={job.video_thumbnail || ''} 
+                          alt={job.video_title || 'Video'}
+                          className="w-12 h-9 object-cover rounded"
+                        />
+                        <div>
+                          <h4 className="text-white font-medium text-sm truncate max-w-xs">
+                            {job.video_title}
+                          </h4>
+                          <p className="text-gray-400 text-xs">
+                            {job.file_size} • {job.quality}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() => job.download_url && downloadFile(job.download_url, job.video_title || 'video')}
+                        className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Download
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
         </motion.div>
 
         {/* Features */}
