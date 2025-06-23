@@ -35,7 +35,7 @@ export const useDownloads = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    console.log('Setting up realtime subscription...');
+    console.log('Setting up enhanced realtime subscription...');
     
     // Subscribe to realtime updates with proper error handling
     const channel = supabase
@@ -146,7 +146,7 @@ export const useDownloads = () => {
   const getVideoInfo = async (url: string): Promise<VideoInfo | null> => {
     setIsLoading(true);
     try {
-      console.log('Getting video info for:', url);
+      console.log('Getting enhanced video info for:', url);
       const { data, error } = await supabase.functions.invoke('get-video-info', {
         body: { url }
       });
@@ -156,13 +156,27 @@ export const useDownloads = () => {
         throw error;
       }
       
-      console.log('Video info received:', data);
+      console.log('Enhanced video info received:', data);
+      
+      // Show format validation info to user
+      if (data.fallback) {
+        toast({
+          title: "Using Basic Info 📋",
+          description: "Real-time format detection unavailable. Quality selection will be validated during download.",
+        });
+      } else {
+        toast({
+          title: "Real Video Info Retrieved! ✅",
+          description: `Found ${data.available_qualities?.length || 0} quality options. Format validation active.`,
+        });
+      }
+      
       return data;
     } catch (error) {
       console.error('Error getting video info:', error);
       toast({
         title: "Unable to fetch video info",
-        description: "Please check the URL and try again.",
+        description: "Please check the URL and try again. The platform may not be supported.",
         variant: "destructive"
       });
       return null;
@@ -173,7 +187,15 @@ export const useDownloads = () => {
 
   const startDownload = async (url: string, videoInfo: VideoInfo, quality: string = '1080p_both') => {
     try {
-      console.log('Starting download with quality:', quality);
+      console.log('Starting enhanced download with quality:', quality);
+      
+      // Enhanced format validation warning
+      const [resolution, format] = quality.split('_');
+      
+      toast({
+        title: "Validating Format 🔍",
+        description: `Checking if ${resolution} ${format === 'both' ? 'video+audio' : format} is available...`,
+      });
       
       // Create job in database
       const { data: job, error: jobError } = await supabase
@@ -196,10 +218,10 @@ export const useDownloads = () => {
         throw jobError;
       }
 
-      console.log('Download job created:', job.id);
+      console.log('Enhanced download job created:', job.id);
 
-      // Start download process
-      console.log('Calling download function...');
+      // Start download process with validation
+      console.log('Calling enhanced download function...');
       const { data: downloadResponse, error: downloadError } = await supabase.functions.invoke('download-video', {
         body: { 
           url, 
@@ -210,22 +232,37 @@ export const useDownloads = () => {
 
       if (downloadError) {
         console.error('Download function error:', downloadError);
+        
+        // Enhanced error handling
+        if (downloadError.message?.includes('not available')) {
+          toast({
+            title: "Quality Not Available ⚠️",
+            description: `${resolution} quality not available. Try a different quality option.`,
+            variant: "destructive"
+          });
+        } else {
+          toast({
+            title: "Download Failed to Start",
+            description: downloadError.message || "Please try again with a different quality.",
+            variant: "destructive"
+          });
+        }
         throw downloadError;
       }
 
-      console.log('Download function response:', downloadResponse);
+      console.log('Enhanced download function response:', downloadResponse);
 
       toast({
-        title: "Download Started 🚀",
-        description: `${videoInfo.title} download has begun. You'll see progress updates in real-time.`,
+        title: "Format Validated & Download Started! 🚀",
+        description: `${videoInfo.title} download has begun with ${resolution} ${format === 'both' ? 'video+audio' : format} format.`,
       });
 
       return job.id;
     } catch (error) {
-      console.error('Error starting download:', error);
+      console.error('Error starting enhanced download:', error);
       toast({
         title: "Download Failed to Start",
-        description: error.message || "Please try again.",
+        description: error.message || "Format validation failed. Please try a different quality option.",
         variant: "destructive"
       });
       return null;

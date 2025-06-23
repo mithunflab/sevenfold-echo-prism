@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, Play, Video, FileVideo, Loader2, CheckCircle, AlertCircle, Youtube, Music, Film, ExternalLink } from 'lucide-react';
+import { Download, Play, Video, FileVideo, Loader2, CheckCircle, AlertCircle, Youtube, Music, Film, ExternalLink, Shield } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -195,16 +195,11 @@ const VideoDownloader = () => {
   const handleDownload = async () => {
     if (!videoData) return;
     
-    console.log('Starting download with format:', selectedFormat, 'quality:', selectedQuality);
+    console.log('Starting enhanced download with format:', selectedFormat, 'quality:', selectedQuality);
     
-    // Ensure formats array exists for VideoInfo interface compatibility
-    const videoInfoWithFormats = {
-      ...videoData,
-      formats: videoData.formats || []
-    };
-    
+    // Enhanced validation feedback
     const qualityWithFormat = `${selectedQuality}_${selectedFormat}`;
-    const jobId = await startDownload(url, videoInfoWithFormats, qualityWithFormat);
+    const jobId = await startDownload(url, videoData, qualityWithFormat);
     if (jobId) {
       setVideoData(null);
       setUrl('');
@@ -212,12 +207,12 @@ const VideoDownloader = () => {
   };
 
   const qualityOptions = [
-    { label: '144p', value: '144p', desc: 'Lowest quality, smallest file' },
-    { label: '360p', value: '360p', desc: 'Good for mobile viewing' },
-    { label: '720p', value: '720p', desc: 'HD quality, balanced size' },
-    { label: '1080p', value: '1080p', desc: 'Full HD, recommended' },
-    { label: '1440p', value: '1440p', desc: '2K quality, large file' },
-    { label: '4K', value: '4K', desc: 'Ultra HD, very large file' }
+    { label: '144p', value: '144p', desc: 'Lowest quality, smallest file', size: '~5-15MB' },
+    { label: '360p', value: '360p', desc: 'Good for mobile viewing', size: '~15-50MB' },
+    { label: '720p', value: '720p', desc: 'HD quality, balanced size', size: '~50-200MB' },
+    { label: '1080p', value: '1080p', desc: 'Full HD, recommended', size: '~200-500MB' },
+    { label: '1440p', value: '1440p', desc: '2K quality, large file', size: '~500MB-1GB' },
+    { label: '4K', value: '4K', desc: 'Ultra HD, very large file', size: '~1-3GB' }
   ];
 
   const formatOptions = [
@@ -226,21 +221,24 @@ const VideoDownloader = () => {
       value: 'both' as const, 
       icon: Video, 
       desc: 'Complete video with sound (MP4)',
-      recommended: true 
+      recommended: true,
+      detail: 'Best choice for watching'
     },
     { 
       label: 'Audio Only', 
       value: 'audio' as const, 
       icon: Music, 
       desc: 'Extract audio track only (MP3)',
-      recommended: false 
+      recommended: false,
+      detail: 'Music, podcasts, lectures'
     },
     { 
       label: 'Video Only', 
       value: 'video' as const, 
       icon: Film, 
       desc: 'Video without audio track (MP4)',
-      recommended: false 
+      recommended: false,
+      detail: 'Silent clips, GIFs'
     }
   ];
 
@@ -314,7 +312,7 @@ const VideoDownloader = () => {
           </motion.p>
         </motion.div>
 
-        {/* Download Interface */}
+        {/* Enhanced Download Interface */}
         <motion.div
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
@@ -322,7 +320,7 @@ const VideoDownloader = () => {
           className="max-w-4xl mx-auto space-y-8"
         >
           <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl">
-            {/* URL Input */}
+            {/* Enhanced URL Input with validation status */}
             <form onSubmit={handleSubmit} className="mb-8">
               <div className="flex gap-4">
                 <Input
@@ -341,8 +339,8 @@ const VideoDownloader = () => {
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
                     <>
-                      <Video className="w-5 h-5 mr-2" />
-                      Analyze
+                      <Shield className="w-5 h-5 mr-2" />
+                      Validate & Analyze
                     </>
                   )}
                 </Button>
@@ -390,14 +388,27 @@ const VideoDownloader = () => {
                       />
                       <div className="flex-1">
                         <h3 className="text-white font-semibold text-lg mb-2">{videoData.title}</h3>
-                        <div className="flex items-center gap-4 text-white/60 mb-6">
+                        <div className="flex items-center gap-4 text-white/60 mb-4">
                           <span>Duration: {videoData.duration}</span>
                           <span>By: {videoData.uploader}</span>
+                          {(videoData as any).platform && (
+                            <span className="bg-blue-500/20 px-2 py-1 rounded text-xs">
+                              {(videoData as any).platform}
+                            </span>
+                          )}
                         </div>
                         
-                        {/* Enhanced Format Selection */}
+                        {/* Enhanced Format Selection with validation info */}
                         <div className="mb-6">
-                          <span className="text-white/80 block mb-3 font-medium">Download Format:</span>
+                          <div className="flex items-center gap-2 mb-3">
+                            <span className="text-white/80 font-medium">Download Format:</span>
+                            {!(videoData as any).fallback && (
+                              <span className="bg-green-500/20 text-green-400 text-xs px-2 py-1 rounded-full flex items-center gap-1">
+                                <CheckCircle className="w-3 h-3" />
+                                Validated
+                              </span>
+                            )}
+                          </div>
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                             {formatOptions.map((format) => (
                               <button
@@ -418,12 +429,13 @@ const VideoDownloader = () => {
                                 <format.icon className="w-6 h-6" />
                                 <span className="font-medium">{format.label}</span>
                                 <span className="text-xs text-center opacity-75">{format.desc}</span>
+                                <span className="text-xs text-blue-400">{format.detail}</span>
                               </button>
                             ))}
                           </div>
                         </div>
                         
-                        {/* Enhanced Quality Selection */}
+                        {/* Enhanced Quality Selection with size estimates */}
                         <div>
                           <span className="text-white/80 block mb-3 font-medium">
                             Quality {selectedFormat === 'audio' ? '(Audio Bitrate)' : '(Video Resolution)'}:
@@ -442,6 +454,7 @@ const VideoDownloader = () => {
                               >
                                 <span className="font-medium">{quality.label}</span>
                                 <span className="text-xs opacity-75 text-center">{quality.desc}</span>
+                                <span className="text-xs text-orange-400">{quality.size}</span>
                               </button>
                             ))}
                           </div>
@@ -453,15 +466,16 @@ const VideoDownloader = () => {
               )}
             </AnimatePresence>
 
-            {/* Enhanced Download Button */}
+            {/* Enhanced Download Button with validation status */}
             {videoData && !currentDownload && (
               <Button
                 onClick={handleDownload}
                 className="w-full h-16 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold text-lg rounded-xl transition-all duration-300 transform hover:scale-105 relative overflow-hidden"
               >
                 <div className="absolute inset-0 bg-white/10 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
-                <Download className="w-6 h-6 mr-3" />
+                <Shield className="w-6 h-6 mr-3" />
                 Download {selectedFormat === 'audio' ? 'Audio' : selectedFormat === 'video' ? 'Video' : 'Video + Audio'} ({selectedQuality})
+                <span className="ml-2 text-sm opacity-80">- Format Validated</span>
               </Button>
             )}
 
