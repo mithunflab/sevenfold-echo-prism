@@ -177,32 +177,50 @@ export const useDownloads = () => {
 
   const downloadFile = async (downloadUrl: string, fileName: string) => {
     try {
-      // Trigger download by opening the signed URL in a new tab
-      // This will cause the browser to download the file
+      toast({
+        title: "Download Starting",
+        description: "Preparing your file for download...",
+      });
+
+      // Fetch the file from the signed URL
+      const response = await fetch(downloadUrl);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch file: ${response.statusText}`);
+      }
+
+      // Get the file as a blob
+      const blob = await response.blob();
+      
+      // Determine file extension from quality/format or use mp4 as default
+      const extension = fileName.includes('audio') ? 'mp3' : 'mp4';
+      const sanitizedFileName = `${fileName.replace(/[^a-zA-Z0-9\s-]/g, '')}.${extension}`;
+      
+      // Create a blob URL
+      const blobUrl = window.URL.createObjectURL(blob);
+      
+      // Create and trigger download
       const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = fileName;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
+      link.href = blobUrl;
+      link.download = sanitizedFileName;
       
-      // Add to DOM temporarily
+      // Add to DOM temporarily and click
       document.body.appendChild(link);
-      
-      // Trigger the download
       link.click();
       
       // Clean up
       document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
 
       toast({
-        title: "Download Started",
-        description: "File download has started in your browser.",
+        title: "Download Complete!",
+        description: `${sanitizedFileName} has been downloaded to your device.`,
       });
     } catch (error) {
       console.error('Error downloading file:', error);
       toast({
         title: "Download Error",
-        description: "Failed to download the file. Please try again.",
+        description: "Failed to download the file. The download link may have expired.",
         variant: "destructive"
       });
     }
