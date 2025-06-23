@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
@@ -27,7 +26,12 @@ interface VideoInfo {
   duration: string;
   uploader: string;
   view_count: string;
-  formats: any[];
+  formats?: any[]; // Made optional to match VideoData
+  platform?: string;
+  available_qualities?: string[];
+  has_audio?: boolean;
+  has_video?: boolean;
+  fallback?: boolean;
 }
 
 export const useDownloads = () => {
