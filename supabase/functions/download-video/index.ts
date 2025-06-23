@@ -37,6 +37,27 @@ serve(async (req) => {
       })
       .eq('id', jobId);
 
+    // Check if yt-dlp is available
+    const checkYtDlp = async () => {
+      try {
+        const process = new Deno.Command('yt-dlp', {
+          args: ['--version'],
+          stdout: 'piped',
+          stderr: 'piped'
+        });
+        const result = await process.output();
+        return result.success;
+      } catch (error) {
+        console.error('yt-dlp not available:', error);
+        return false;
+      }
+    };
+
+    const ytDlpAvailable = await checkYtDlp();
+    if (!ytDlpAvailable) {
+      throw new Error('yt-dlp is not available in the environment');
+    }
+
     // Real yt-dlp download process
     const downloadVideo = async () => {
       try {
@@ -54,10 +75,11 @@ serve(async (req) => {
         let ytDlpArgs = [
           '--no-warnings',
           '--newline',
-          '--progress'
+          '--progress',
+          '--no-playlist'
         ];
 
-        let outputTemplate = '/tmp/%(title)s.%(ext)s';
+        let outputTemplate = '/tmp/%(title)s_%(id)s.%(ext)s';
         let expectedExtension = 'mp4';
 
         // Set format based on user selection with proper yt-dlp syntax
@@ -66,22 +88,22 @@ serve(async (req) => {
           ytDlpArgs.push(
             '--extract-audio',
             '--audio-format', 'mp3',
-            '--audio-quality', '192K',
+            '--audio-quality', '0', // Best quality
             '--format', 'bestaudio/best'
           );
-          outputTemplate = '/tmp/%(title)s.%(ext)s';
+          outputTemplate = '/tmp/%(title)s_%(id)s.%(ext)s';
           expectedExtension = 'mp3';
         } else if (format === 'video') {
           // Video only - no audio track
-          const maxHeight = resolution.replace('p', '');
+          const maxHeight = resolution === '4K' ? '2160' : resolution.replace('p', '');
           ytDlpArgs.push(
-            '--format', `best[height<=${maxHeight}][vcodec!=none][acodec=none]/best[height<=${maxHeight}]`
+            '--format', `bestvideo[height<=${maxHeight}][ext=mp4]/bestvideo[height<=${maxHeight}]/best[height<=${maxHeight}]`
           );
           expectedExtension = 'mp4';
         } else { // both - video + audio
-          const maxHeight = resolution.replace('p', '');
+          const maxHeight = resolution === '4K' ? '2160' : resolution.replace('p', '');
           ytDlpArgs.push(
-            '--format', `best[height<=${maxHeight}]/best`
+            '--format', `best[height<=${maxHeight}][ext=mp4]/best[height<=${maxHeight}]/best`
           );
           expectedExtension = 'mp4';
         }
@@ -91,11 +113,15 @@ serve(async (req) => {
 
         console.log('yt-dlp command:', ['yt-dlp', ...ytDlpArgs]);
 
-        // Execute yt-dlp
+        // Execute yt-dlp with proper environment
         const process = new Deno.Command('yt-dlp', {
           args: ytDlpArgs,
           stdout: 'piped',
-          stderr: 'piped'
+          stderr: 'piped',
+          env: {
+            'PATH': '/opt/venv/bin:/usr/local/bin:/usr/bin:/bin',
+            'PYTHONPATH': '/opt/venv/lib/python3.11/site-packages'
+          }
         });
 
         const child = process.spawn();
@@ -105,7 +131,6 @@ serve(async (req) => {
 
         // Read progress from yt-dlp output with better parsing
         const reader = child.stdout.getReader();
-        const errorReader = child.stderr.getReader();
 
         // Monitor progress with improved parsing
         const progressPromise = (async () => {
@@ -130,10 +155,10 @@ serve(async (req) => {
             }
 
             if (progressMatch) {
-              const newProgress = Math.min(parseFloat(progressMatch[1]), 95);
+              const newProgress = Math.min(parseFloat(progressMatch[1]), 90);
               
               // Only update if significant change or enough time passed
-              if (newProgress > downloadProgress + 2 || Date.now() - lastUpdateTime > 3000) {
+              if (newProgress > downloadProgress + 1 || Date.now() - lastUpdateTime > 2000) {
                 downloadProgress = newProgress;
                 lastUpdateTime = Date.now();
                 
@@ -151,13 +176,13 @@ serve(async (req) => {
               }
             }
 
-            // Check for extraction/processing messages
-            if (output.includes('[ExtractAudio]') || output.includes('Extracting audio')) {
+            // Check for post-processing messages
+            if (output.includes('[ExtractAudio]') || output.includes('Extracting audio') || output.includes('[ffmpeg]')) {
               await supabase
                 .from('download_jobs')
                 .update({ 
-                  progress: Math.max(downloadProgress, 90),
-                  download_speed: 'Processing audio...',
+                  progress: Math.max(downloadProgress, 85),
+                  download_speed: 'Processing...',
                   eta: 'Almost done'
                 })
                 .eq('id', jobId);
@@ -166,6 +191,7 @@ serve(async (req) => {
         })();
 
         // Monitor errors
+        const errorReader = child.stderr.getReader();
         const errorPromise = (async () => {
           let errorOutput = '';
           while (true) {
@@ -200,7 +226,8 @@ serve(async (req) => {
               (format !== 'audio' && (fileName.endsWith('.mp4') || fileName.endsWith('.webm') || fileName.endsWith('.mkv')))
             );
             
-            if (isTargetFormat && !fileName.startsWith('.')) {
+            // Only include files that are likely from our download (exclude system files)
+            if (isTargetFormat && !fileName.startsWith('.') && fileName.length > 10) {
               files.push(fileName);
               console.log('Found file:', fileName);
             }
@@ -208,31 +235,43 @@ serve(async (req) => {
         }
 
         if (files.length === 0) {
-          throw new Error('No downloaded file found');
+          throw new Error('No downloaded file found. Download may have failed.');
         }
 
-        // Use the first matching file
+        // Use the most recently created file
         const fileName = files[0];
         const filePath = `/tmp/${fileName}`;
         
         console.log('Reading file:', filePath);
         
+        // Validate file exists and has content
+        const fileInfo = await Deno.stat(filePath);
+        if (fileInfo.size === 0) {
+          throw new Error('Downloaded file is empty');
+        }
+
         // Read the downloaded file
         const fileData = await Deno.readFile(filePath);
         const fileSize = fileData.length;
         
+        // Basic file validation - check for media file headers
+        const isValidMediaFile = validateMediaFile(fileData, format);
+        if (!isValidMediaFile) {
+          throw new Error('Downloaded file appears to be corrupted or invalid');
+        }
+
         // Generate a unique filename for storage
         const timestamp = Date.now();
         const actualExtension = fileName.split('.').pop() || expectedExtension;
         const storageFileName = `${format}_${jobId}_${timestamp}.${actualExtension}`;
         
-        console.log('Uploading to storage:', storageFileName);
+        console.log('Uploading to storage:', storageFileName, 'Size:', fileSize);
 
         // Update progress to show uploading
         await supabase
           .from('download_jobs')
           .update({ 
-            progress: 98,
+            progress: 95,
             download_speed: 'Uploading...',
             eta: 'Final step'
           })
@@ -317,6 +356,29 @@ serve(async (req) => {
     );
   }
 });
+
+// Helper function to validate media files
+function validateMediaFile(fileData: Uint8Array, format: string): boolean {
+  // Check for common media file signatures
+  const mp4Signature = [0x00, 0x00, 0x00]; // ftyp box for MP4
+  const mp3Signature = [0xFF, 0xFB]; // MP3 frame header
+  const mp3IDSignature = [0x49, 0x44, 0x33]; // ID3 tag for MP3
+  
+  if (format === 'audio') {
+    // Check for MP3 signatures
+    const hasMP3Header = fileData[0] === mp3Signature[0] && fileData[1] === mp3Signature[1];
+    const hasID3Tag = fileData[0] === mp3IDSignature[0] && fileData[1] === mp3IDSignature[1] && fileData[2] === mp3IDSignature[2];
+    return hasMP3Header || hasID3Tag;
+  } else {
+    // Check for MP4/video signatures (look for ftyp box within first 20 bytes)
+    for (let i = 0; i < Math.min(20, fileData.length - 4); i++) {
+      if (fileData[i] === 0x66 && fileData[i+1] === 0x74 && fileData[i+2] === 0x79 && fileData[i+3] === 0x70) {
+        return true; // Found 'ftyp' signature
+      }
+    }
+    return false;
+  }
+}
 
 // Helper functions
 function getContentType(extension: string): string {
