@@ -63,14 +63,6 @@ export const useDownloads = () => {
               toast({
                 title: "Download Complete!",
                 description: "Your video is ready for download.",
-                action: (
-                  <button
-                    onClick={() => downloadFile(updatedJob.download_url!, updatedJob.video_title || 'video')}
-                    className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600"
-                  >
-                    Download
-                  </button>
-                ),
               });
             }
             
