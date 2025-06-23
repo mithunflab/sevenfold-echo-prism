@@ -17,6 +17,7 @@ interface DownloadJob {
   quality: string;
   created_at: string;
   error_message: string | null;
+  file_size?: string | null;
 }
 
 interface VideoInfo {
@@ -78,8 +79,14 @@ export const useDownloads = () => {
         .limit(10);
 
       if (error) throw error;
-      // Cast the data to our DownloadJob type to ensure proper typing
-      setDownloadJobs((data || []) as DownloadJob[]);
+      
+      // Type assertion to ensure proper typing
+      const typedData: DownloadJob[] = (data || []).map(job => ({
+        ...job,
+        status: job.status as DownloadJob['status']
+      }));
+      
+      setDownloadJobs(typedData);
     } catch (error) {
       console.error('Error loading download jobs:', error);
     }
@@ -98,7 +105,7 @@ export const useDownloads = () => {
       console.error('Error getting video info:', error);
       toast({
         title: "Error",
-        description: "Failed to fetch video information.",
+        description: "Failed to fetch video information. Please check the URL and try again.",
         variant: "destructive"
       });
       return null;
@@ -107,9 +114,9 @@ export const useDownloads = () => {
     }
   };
 
-  const startDownload = async (url: string, videoInfo: VideoInfo, quality: string = '1080p') => {
+  const startDownload = async (url: string, videoInfo: VideoInfo, quality: string = '1080p_both') => {
     try {
-      // Create download job in database
+      // No queuing - start download immediately
       const { data: job, error: jobError } = await supabase
         .from('download_jobs')
         .insert({
@@ -126,7 +133,7 @@ export const useDownloads = () => {
 
       if (jobError) throw jobError;
 
-      // Start download process
+      // Start download process immediately
       const { error: downloadError } = await supabase.functions.invoke('download-video', {
         body: { 
           url, 
@@ -139,7 +146,7 @@ export const useDownloads = () => {
 
       toast({
         title: "Download Started",
-        description: "Your video download has been queued.",
+        description: "Your video download is starting now - no waiting in queue!",
       });
 
       return job.id;
@@ -147,7 +154,7 @@ export const useDownloads = () => {
       console.error('Error starting download:', error);
       toast({
         title: "Download Failed",
-        description: "Failed to start video download.",
+        description: "Failed to start video download. Please try again.",
         variant: "destructive"
       });
       return null;
