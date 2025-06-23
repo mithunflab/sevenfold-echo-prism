@@ -1,4 +1,3 @@
-
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -8,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from '@/components/ui/card';
-import { toast } from '@/hooks/use-toast';
+import { useDownloads } from '@/hooks/useDownloads';
 
 interface VideoData {
   title: string;
@@ -135,107 +134,11 @@ const VideoDownloader = () => {
   const [selectedQuality, setSelectedQuality] = useState('1080p');
   const [selectedFormat, setSelectedFormat] = useState<'video' | 'audio' | 'both'>('both');
   const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [downloadJobs, setDownloadJobs] = useState<DownloadJob[]>([]);
+  
+  // Use the real useDownloads hook
+  const { downloadJobs, isLoading, getVideoInfo, startDownload, downloadFile } = useDownloads();
 
   console.log('VideoDownloader component rendering');
-
-  // Mock functions for now since useDownloads hook is not available
-  const getVideoInfo = async (url: string) => {
-    console.log('Getting video info for:', url);
-    setIsLoading(true);
-    try {
-      // Mock video data for testing
-      const mockVideoData = {
-        title: "Sample Video Title",
-        thumbnail: "https://via.placeholder.com/320x180",
-        duration: "3:45",
-        uploader: "Sample Channel",
-        view_count: "1,234,567",
-        formats: []
-      };
-      
-      toast({
-        title: "Video Found!",
-        description: "Video information loaded successfully",
-      });
-      
-      setIsLoading(false);
-      return mockVideoData;
-    } catch (error) {
-      console.error('Error getting video info:', error);
-      toast({
-        title: "Error",
-        description: "Failed to get video information",
-        variant: "destructive"
-      });
-      setIsLoading(false);
-      return null;
-    }
-  };
-
-  const startDownload = async (url: string, videoInfo: VideoData, quality: string) => {
-    console.log('Starting download:', { url, videoInfo, quality });
-    const jobId = Date.now().toString();
-    
-    const newJob: DownloadJob = {
-      id: jobId,
-      status: 'downloading',
-      progress: 0,
-      video_title: videoInfo.title,
-      video_thumbnail: videoInfo.thumbnail,
-      video_uploader: videoInfo.uploader,
-      quality,
-      download_speed: '1.2 MB/s',
-      eta: '2m 30s',
-      file_size: '25.4 MB'
-    };
-    
-    setDownloadJobs(prev => [...prev, newJob]);
-    
-    toast({
-      title: "Download Started",
-      description: `Starting download of ${videoInfo.title}`,
-    });
-    
-    // Simulate download progress
-    const progressInterval = setInterval(() => {
-      setDownloadJobs(prev => 
-        prev.map(job => 
-          job.id === jobId 
-            ? { ...job, progress: Math.min(job.progress + 10, 100) }
-            : job
-        )
-      );
-    }, 1000);
-    
-    // Complete download after 10 seconds
-    setTimeout(() => {
-      clearInterval(progressInterval);
-      setDownloadJobs(prev => 
-        prev.map(job => 
-          job.id === jobId 
-            ? { ...job, status: 'completed', progress: 100, download_url: '#' }
-            : job
-        )
-      );
-      
-      toast({
-        title: "Download Complete!",
-        description: `${videoInfo.title} has been downloaded successfully`,
-      });
-    }, 10000);
-    
-    return jobId;
-  };
-
-  const downloadFile = (url: string, filename: string) => {
-    console.log('Downloading file:', { url, filename });
-    toast({
-      title: "File Downloaded",
-      description: `${filename} is ready for download`,
-    });
-  };
 
   // Get current downloading job
   const currentDownload = downloadJobs.find(job => 
@@ -289,13 +192,8 @@ const VideoDownloader = () => {
   const handleDownload = async () => {
     if (!videoData) return;
     
-    const videoInfo = {
-      ...videoData,
-      formats: videoData.formats || []
-    };
-    
     const qualityWithFormat = `${selectedQuality}_${selectedFormat}`;
-    const jobId = await startDownload(url, videoInfo, qualityWithFormat);
+    const jobId = await startDownload(url, videoData, qualityWithFormat);
     if (jobId) {
       setVideoData(null);
       setUrl('');

@@ -57,12 +57,18 @@ export const useDownloads = () => {
               )
             );
             
-            // Show download completion notification
+            // Show download completion notification with download action
             const updatedJob = payload.new as DownloadJob;
             if (updatedJob.status === 'completed' && updatedJob.download_url) {
               toast({
                 title: "Download Complete!",
-                description: "Your video is ready for download.",
+                description: `${updatedJob.video_title || 'Your video'} is ready for download.`,
+              });
+            } else if (updatedJob.status === 'failed') {
+              toast({
+                title: "Download Failed",
+                description: updatedJob.error_message || "An error occurred during download",
+                variant: "destructive"
               });
             }
             
@@ -171,13 +177,21 @@ export const useDownloads = () => {
 
   const downloadFile = async (downloadUrl: string, fileName: string) => {
     try {
-      // Create a temporary anchor element to trigger download
+      // Trigger download by opening the signed URL in a new tab
+      // This will cause the browser to download the file
       const link = document.createElement('a');
       link.href = downloadUrl;
-      link.download = `${fileName}.mp4`;
+      link.download = fileName;
       link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      
+      // Add to DOM temporarily
       document.body.appendChild(link);
+      
+      // Trigger the download
       link.click();
+      
+      // Clean up
       document.body.removeChild(link);
 
       toast({
