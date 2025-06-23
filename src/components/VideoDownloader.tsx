@@ -192,8 +192,14 @@ const VideoDownloader = () => {
   const handleDownload = async () => {
     if (!videoData) return;
     
+    // Ensure formats array exists for VideoInfo interface compatibility
+    const videoInfoWithFormats = {
+      ...videoData,
+      formats: videoData.formats || []
+    };
+    
     const qualityWithFormat = `${selectedQuality}_${selectedFormat}`;
-    const jobId = await startDownload(url, videoData, qualityWithFormat);
+    const jobId = await startDownload(url, videoInfoWithFormats, qualityWithFormat);
     if (jobId) {
       setVideoData(null);
       setUrl('');
@@ -344,7 +350,6 @@ const VideoDownloader = () => {
               )}
             </form>
 
-            {/* Video Info */}
             <AnimatePresence>
               {videoData && (
                 <motion.div
@@ -427,7 +432,6 @@ const VideoDownloader = () => {
               </Button>
             )}
 
-            {/* Current Download Progress */}
             <AnimatePresence>
               {currentDownload && (
                 <motion.div
