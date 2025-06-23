@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
@@ -71,15 +72,30 @@ export const useDownloads = () => {
             );
             
             if (updatedJob.status === 'completed' && updatedJob.download_url) {
+              // Enhanced completion notification with file size
               toast({
                 title: "✅ Download Complete!",
-                description: `${updatedJob.video_title || 'Your video'} is ready. Click Download to save to your device.`,
-                duration: 5000,
+                description: `${updatedJob.video_title || 'Your video'} is ready (${updatedJob.file_size}). Click Download to save to your device.`,
+                duration: 6000,
               });
             } else if (updatedJob.status === 'failed') {
+              // Enhanced error notification with specific guidance
+              const errorMsg = updatedJob.error_message || "Download failed";
+              let userFriendlyMsg = "Download failed. Please try again.";
+              
+              if (errorMsg.includes('corrupted') || errorMsg.includes('too small')) {
+                userFriendlyMsg = "File corruption detected. Trying a different quality may help.";
+              } else if (errorMsg.includes('timeout')) {
+                userFriendlyMsg = "Download timed out. The video may be too large or server is busy.";
+              } else if (errorMsg.includes('not available')) {
+                userFriendlyMsg = "This quality is not available. Please try a different quality option.";
+              } else if (errorMsg.includes('yt-dlp')) {
+                userFriendlyMsg = "Video downloader is currently unavailable. Please try again later.";
+              }
+              
               toast({
                 title: "❌ Download Failed",
-                description: updatedJob.error_message || "Download failed. Please try again with a different quality.",
+                description: userFriendlyMsg,
                 variant: "destructive",
                 duration: 8000,
               });
@@ -181,9 +197,9 @@ export const useDownloads = () => {
       const [resolution, format] = quality.split('_');
       
       toast({
-        title: "🚀 Starting Download",
-        description: `Preparing ${resolution} ${format === 'both' ? 'video+audio' : format} download...`,
-        duration: 3000,
+        title: "🚀 Starting Enhanced Download",
+        description: `Preparing ${resolution} ${format === 'both' ? 'video+audio' : format} download with integrity verification...`,
+        duration: 4000,
       });
       
       const { data: job, error: jobError } = await supabase
@@ -218,32 +234,25 @@ export const useDownloads = () => {
 
       if (downloadError) {
         console.error('Download function error:', downloadError);
-        
-        if (downloadError.message?.includes('not available')) {
-          toast({
-            title: "❌ Quality Not Available",
-            description: `${resolution} quality not available. Try a different quality option.`,
-            variant: "destructive",
-            duration: 6000,
-          });
-        } else {
-          toast({
-            title: "❌ Download Failed to Start",
-            description: downloadError.message || "Please try again with a different quality.",
-            variant: "destructive",
-            duration: 6000,
-          });
-        }
         throw downloadError;
       }
 
-      console.log('Download function response:', downloadResponse);
+      console.log('Enhanced download function response:', downloadResponse);
       return job.id;
     } catch (error) {
       console.error('Error starting download:', error);
+      
+      // Enhanced error messaging
+      let userMessage = "Please try a different quality option or check your internet connection.";
+      if (error.message?.includes('yt-dlp')) {
+        userMessage = "Video downloader is temporarily unavailable. Please try again in a few minutes.";
+      } else if (error.message?.includes('not available')) {
+        userMessage = "This quality is not available for this video. Try a different quality option.";
+      }
+      
       toast({
         title: "❌ Download Failed to Start",
-        description: error.message || "Please try a different quality option or check your internet connection.",
+        description: userMessage,
         variant: "destructive",
         duration: 8000,
       });
@@ -257,8 +266,8 @@ export const useDownloads = () => {
       
       toast({
         title: "📥 Preparing Download",
-        description: `Getting your file ready for download...`,
-        duration: 2000,
+        description: `Verifying file integrity and preparing download...`,
+        duration: 3000,
       });
 
       const response = await fetch(downloadUrl, {
@@ -274,6 +283,16 @@ export const useDownloads = () => {
 
       const blob = await response.blob();
       console.log('File blob received, size:', blob.size, 'type:', blob.type);
+
+      // Enhanced file validation on client side
+      if (blob.size < 10000) { // Less than 10KB is likely corrupted
+        toast({
+          title: "⚠️ Suspicious File Size",
+          description: "The downloaded file seems unusually small. It may be corrupted. Please try downloading again.",
+          variant: "destructive",
+          duration: 8000,
+        });
+      }
 
       let extension = 'mp4';
       if (quality.includes('audio') || blob.type.includes('audio')) {
@@ -299,17 +318,17 @@ export const useDownloads = () => {
 
       toast({
         title: "✅ Download Started!",
-        description: `${sanitizedFileName} download has started. Check your Downloads folder.`,
-        duration: 4000,
+        description: `${sanitizedFileName} (${formatFileSize(blob.size)}) download has started. Check your Downloads folder.`,
+        duration: 5000,
       });
       
     } catch (error) {
       console.error('Error downloading file:', error);
       toast({
         title: "❌ Download Error",
-        description: `Failed to download file: ${error.message}. The download link may have expired.`,
+        description: `Failed to download file: ${error.message}. The download link may have expired or the file may be corrupted.`,
         variant: "destructive",
-        duration: 6000,
+        duration: 8000,
       });
     }
   };
@@ -323,3 +342,12 @@ export const useDownloads = () => {
     downloadFile
   };
 };
+
+// Helper function to format file size
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
