@@ -1,25 +1,7 @@
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-
-interface DownloadJob {
-  id: string;
-  video_url: string;
-  video_title: string | null;
-  video_thumbnail: string | null;
-  video_duration: string | null;
-  video_uploader: string | null;
-  status: 'pending' | 'downloading' | 'completed' | 'failed' | 'cancelled';
-  progress: number;
-  download_speed: string | null;
-  eta: string | null;
-  quality: string;
-  created_at: string;
-  error_message: string | null;
-  file_size?: string | null;
-  download_url?: string | null;
-}
 
 interface VideoInfo {
   title: string;
@@ -36,117 +18,8 @@ interface VideoInfo {
 }
 
 export const useDownloads = () => {
-  const [downloadJobs, setDownloadJobs] = useState<DownloadJob[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-
-  useEffect(() => {
-    console.log('Setting up realtime subscription for downloads...');
-    
-    const channel = supabase
-      .channel('download_jobs_updates')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'download_jobs'
-        },
-        (payload) => {
-          console.log('Real-time download update:', payload.eventType, payload);
-          
-          if (payload.eventType === 'INSERT') {
-            const newJob = payload.new as DownloadJob;
-            setDownloadJobs(prev => {
-              const exists = prev.find(job => job.id === newJob.id);
-              if (exists) return prev;
-              return [newJob, ...prev];
-            });
-            
-          } else if (payload.eventType === 'UPDATE') {
-            const updatedJob = payload.new as DownloadJob;
-            
-            setDownloadJobs(prev => 
-              prev.map(job => 
-                job.id === updatedJob.id ? updatedJob : job
-              )
-            );
-            
-            if (updatedJob.status === 'completed' && updatedJob.download_url) {
-              toast({
-                title: "✅ Download Complete!",
-                description: `${updatedJob.video_title || 'Your video'} is ready (${updatedJob.file_size}). File integrity verified. Click Download to save to your device.`,
-                duration: 8000,
-              });
-            } else if (updatedJob.status === 'failed') {
-              const errorMsg = updatedJob.error_message || "Download failed";
-              let userFriendlyMsg = "Download failed. Please try again.";
-              
-              if (errorMsg.includes('File too small') || errorMsg.includes('corrupted')) {
-                userFriendlyMsg = "File corruption detected. The video may not be available in the requested quality. Try a different quality or URL.";
-              } else if (errorMsg.includes('Invalid file format')) {
-                userFriendlyMsg = "Downloaded file is invalid. The video may be region-locked or unavailable. Try a different URL or quality.";
-              } else if (errorMsg.includes('timeout')) {
-                userFriendlyMsg = "Download timed out. Try again with a lower quality setting or check your internet connection.";
-              } else if (errorMsg.includes('not available')) {
-                userFriendlyMsg = "This quality is not available for this video. Please try a different quality option.";
-              } else if (errorMsg.includes('yt-dlp') || errorMsg.includes('downloader') || errorMsg.includes('environment')) {
-                userFriendlyMsg = "Video downloader is currently unavailable. Our system is working to resolve this. Please try again in a few minutes.";
-              } else if (errorMsg.includes('No video file was downloaded')) {
-                userFriendlyMsg = "No video was downloaded. The URL may be invalid, private, or from an unsupported platform.";
-              }
-              
-              toast({
-                title: "❌ Download Failed",
-                description: userFriendlyMsg,
-                variant: "destructive",
-                duration: 10000,
-              });
-            }
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log('Download subscription status:', status);
-      });
-
-    loadDownloadJobs();
-
-    return () => {
-      console.log('Cleaning up download subscription');
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  const loadDownloadJobs = async () => {
-    try {
-      console.log('Loading download jobs...');
-      const { data, error } = await supabase
-        .from('download_jobs')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(20);
-
-      if (error) {
-        console.error('Error loading jobs:', error);
-        throw error;
-      }
-      
-      const typedData: DownloadJob[] = (data || []).map(job => ({
-        ...job,
-        status: job.status as DownloadJob['status']
-      }));
-      
-      console.log('Loaded download jobs:', typedData.length);
-      setDownloadJobs(typedData);
-    } catch (error) {
-      console.error('Error loading download jobs:', error);
-      toast({
-        title: "Error loading downloads",
-        description: "Failed to load download history",
-        variant: "destructive"
-      });
-    }
-  };
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const checkDownloadHealth = async (): Promise<boolean> => {
     try {
@@ -225,9 +98,21 @@ export const useDownloads = () => {
     }
   };
 
-  const startDownload = async (url: string, videoInfo: VideoInfo, quality: string = '1080p_both') => {
+  const startDirectDownload = async (url: string, videoInfo: VideoInfo, quality: string = '1080p_both') => {
+    if (isDownloading) {
+      toast({
+        title: "⚠️ Download in Progress",
+        description: "Please wait for the current download to complete.",
+        variant: "destructive",
+        duration: 4000,
+      });
+      return;
+    }
+
+    setIsDownloading(true);
+    
     try {
-      console.log('Starting enhanced download with quality:', quality);
+      console.log('Starting direct download with quality:', quality);
       
       // Check service health before starting download
       const isHealthy = await checkDownloadHealth();
@@ -238,156 +123,122 @@ export const useDownloads = () => {
           variant: "destructive",
           duration: 8000,
         });
-        return null;
+        return;
       }
       
       const [resolution, format] = quality.split('_');
       
       toast({
-        title: "🚀 Starting Enhanced Download",
-        description: `Preparing ${resolution} ${format === 'both' ? 'video+audio' : format} download with file integrity verification...`,
+        title: "🚀 Starting Direct Download",
+        description: `Preparing ${resolution} ${format === 'both' ? 'video+audio' : format} download. This may take a moment...`,
         duration: 4000,
       });
-      
-      const { data: job, error: jobError } = await supabase
-        .from('download_jobs')
-        .insert({
-          video_url: url,
-          video_title: videoInfo.title,
-          video_thumbnail: videoInfo.thumbnail,
-          video_duration: videoInfo.duration,
-          video_uploader: videoInfo.uploader,
-          quality,
-          status: 'pending',
-          progress: 0
-        })
-        .select()
-        .single();
 
-      if (jobError) {
-        console.error('Job creation error:', jobError);
-        throw jobError;
-      }
-
-      console.log('Download job created:', job.id);
-
-      const { data: downloadResponse, error: downloadError } = await supabase.functions.invoke('download-video', {
-        body: { 
-          url, 
-          quality, 
-          jobId: job.id 
-        }
-      });
-
-      if (downloadError) {
-        console.error('Download function error:', downloadError);
-        throw downloadError;
-      }
-
-      console.log('Enhanced download function response:', downloadResponse);
-      return job.id;
-    } catch (error) {
-      console.error('Error starting download:', error);
-      
-      let userMessage = "Please try a different quality option or check your internet connection.";
-      if (error.message?.includes('environment') || error.message?.includes('unavailable')) {
-        userMessage = "Download service is temporarily unavailable. Please try again in a few minutes.";
-      } else if (error.message?.includes('not available')) {
-        userMessage = "This quality is not available for this video. Try a different quality option.";
-      } else if (error.message?.includes('timeout')) {
-        userMessage = "Request timed out. Please try again with a lower quality setting.";
-      }
-      
-      toast({
-        title: "❌ Download Failed to Start",
-        description: userMessage,
-        variant: "destructive",
-        duration: 8000,
-      });
-      return null;
-    }
-  };
-
-  const downloadFile = async (downloadUrl: string, fileName: string, quality: string = '') => {
-    try {
-      console.log('Starting verified file download from URL:', downloadUrl);
-      
-      toast({
-        title: "📥 Preparing Download",
-        description: `Downloading verified file...`,
-        duration: 3000,
-      });
-
-      const response = await fetch(downloadUrl, {
-        method: 'GET',
+      // Make direct download request
+      const response = await fetch(`${supabase.supabaseUrl}/functions/v1/download-video`, {
+        method: 'POST',
         headers: {
-          'Accept': '*/*',
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabase.supabaseKey}`,
         },
+        body: JSON.stringify({ 
+          url, 
+          quality
+        })
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`);
+        const errorData = await response.json().catch(() => ({ error: 'Download failed' }));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
       }
 
+      // Check if response is JSON (error) or file stream (success)
+      const contentType = response.headers.get('content-type');
+      
+      if (contentType && contentType.includes('application/json')) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Download failed');
+      }
+
+      // Handle file download
       const blob = await response.blob();
       console.log('File blob received, size:', blob.size, 'type:', blob.type);
 
-      // Enhanced client-side validation
-      if (blob.size < 100000) { // Less than 100KB is suspicious
-        toast({
-          title: "⚠️ Small File Warning",
-          description: "The downloaded file seems unusually small. It may be corrupted or incomplete.",
-          variant: "destructive",
-          duration: 8000,
-        });
+      // Validate downloaded file
+      if (blob.size < 1000) {
+        throw new Error('Downloaded file is too small - likely corrupted or invalid');
       }
 
-      let extension = 'mp4';
-      if (quality.includes('audio') || blob.type.includes('audio')) {
-        extension = blob.type.includes('mp4') ? 'm4a' : 'mp3';
-      } else if (blob.type.includes('webm')) {
-        extension = 'webm';
+      // Get filename from response headers or generate one
+      const contentDisposition = response.headers.get('content-disposition');
+      let fileName = 'downloaded_video';
+      
+      if (contentDisposition) {
+        const fileNameMatch = contentDisposition.match(/filename="([^"]+)"/);
+        if (fileNameMatch) {
+          fileName = fileNameMatch[1];
+        }
+      } else {
+        // Generate filename based on quality and format
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const extension = format === 'audio' ? 'mp3' : 'mp4';
+        fileName = `${videoInfo.title.replace(/[^a-zA-Z0-9\s-_()]/g, '').slice(0, 50)}_${timestamp}.${extension}`;
       }
       
-      const sanitizedFileName = `${fileName.replace(/[^a-zA-Z0-9\s-_()]/g, '')}.${extension}`;
-      
+      // Create download link and trigger download
+      const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
-      link.href = window.URL.createObjectURL(blob);
-      link.download = sanitizedFileName;
+      link.href = downloadUrl;
+      link.download = fileName;
       link.style.display = 'none';
       
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       
+      // Clean up object URL
       setTimeout(() => {
-        window.URL.revokeObjectURL(link.href);
+        window.URL.revokeObjectURL(downloadUrl);
       }, 1000);
 
       toast({
-        title: "✅ Download Started!",
-        description: `${sanitizedFileName} (${formatFileSize(blob.size)}) - File integrity verified. Check your Downloads folder.`,
+        title: "✅ Download Complete!",
+        description: `${fileName} (${formatFileSize(blob.size)}) has been downloaded successfully. Check your Downloads folder.`,
         duration: 6000,
       });
       
     } catch (error) {
-      console.error('Error downloading file:', error);
+      console.error('Error during direct download:', error);
+      
+      let userMessage = "Please try a different quality option or check your internet connection.";
+      const errorMsg = error.message || '';
+      
+      if (errorMsg.includes('environment') || errorMsg.includes('unavailable')) {
+        userMessage = "Download service is temporarily unavailable. Please try again in a few minutes.";
+      } else if (errorMsg.includes('not available') || errorMsg.includes('No video file')) {
+        userMessage = "This video is not available for download. The URL may be invalid, private, or from an unsupported platform.";
+      } else if (errorMsg.includes('timeout') || errorMsg.includes('timed out')) {
+        userMessage = "Download timed out. Please try again with a lower quality setting.";
+      } else if (errorMsg.includes('too small') || errorMsg.includes('corrupted')) {
+        userMessage = "Download failed due to file corruption. Try a different quality or URL.";
+      }
+      
       toast({
-        title: "❌ Download Error",
-        description: `Failed to download file: ${error.message}. The download link may have expired.`,
+        title: "❌ Download Failed",
+        description: userMessage,
         variant: "destructive",
         duration: 8000,
       });
+    } finally {
+      setIsDownloading(false);
     }
   };
 
   return {
-    downloadJobs,
     isLoading,
+    isDownloading,
     getVideoInfo,
-    startDownload,
-    loadDownloadJobs,
-    downloadFile,
+    startDirectDownload,
     checkDownloadHealth
   };
 };
