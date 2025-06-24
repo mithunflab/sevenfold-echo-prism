@@ -17,6 +17,10 @@ interface VideoInfo {
   fallback?: boolean;
 }
 
+// Hardcoded Supabase configuration for direct downloads
+const SUPABASE_URL = "https://uemkfuedhbhhzowhpjgo.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVlbWtmdWVkaGJoaHpvd2hwamdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2MTEwMzMsImV4cCI6MjA2NjE4NzAzM30.8x1JbbReKwnLBb0MuWnCaFGwEsWB0IPXMab0ehMf9ko";
+
 export const useDownloads = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -134,12 +138,12 @@ export const useDownloads = () => {
         duration: 4000,
       });
 
-      // Make direct download request
-      const response = await fetch(`${supabase.supabaseUrl}/functions/v1/download-video`, {
+      // Make direct download request using hardcoded values
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/download-video`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabase.supabaseKey}`,
+          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
         },
         body: JSON.stringify({ 
           url, 
