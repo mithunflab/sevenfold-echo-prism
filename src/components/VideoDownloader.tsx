@@ -1,8 +1,9 @@
+
 "use client";
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, Play, Video, FileVideo, Loader2, CheckCircle, AlertCircle, Youtube, Music, Film, Shield } from 'lucide-react';
+import { Download, Loader2, CheckCircle, AlertCircle, Youtube, Music, Film } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,115 +18,14 @@ interface VideoData {
   formats?: any[];
 }
 
-const FloatingShape = ({ 
-  delay = 0, 
-  className = "",
-  size = 100,
-  color = "from-red-500/20"
-}: {
-  delay?: number;
-  className?: string;
-  size?: number;
-  color?: string;
-}) => {
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0, rotate: 0 }}
-      animate={{ 
-        opacity: [0, 1, 1, 0],
-        scale: [0, 1, 1.2, 0],
-        rotate: [0, 180, 360],
-        y: [0, -20, 0]
-      }}
-      transition={{
-        duration: 8,
-        delay,
-        repeat: Infinity,
-        ease: "easeInOut"
-      }}
-      className={cn(
-        "absolute rounded-full blur-xl",
-        `bg-gradient-to-r ${color} to-transparent`,
-        className
-      )}
-      style={{ width: size, height: size }}
-    />
-  );
-};
-
-const GlowOrb = ({ 
-  className = "",
-  size = 200,
-  color = "bg-gradient-to-r from-blue-500/30 to-purple-500/30"
-}: {
-  className?: string;
-  size?: number;
-  color?: string;
-}) => {
-  return (
-    <motion.div
-      animate={{
-        scale: [1, 1.2, 1],
-        opacity: [0.3, 0.6, 0.3],
-      }}
-      transition={{
-        duration: 4,
-        repeat: Infinity,
-        ease: "easeInOut"
-      }}
-      className={cn(
-        "absolute rounded-full blur-3xl",
-        color,
-        className
-      )}
-      style={{ width: size, height: size }}
-    />
-  );
-};
-
-const ParticleField = () => {
-  const particles = Array.from({ length: 20 }, (_, i) => i);
-  
-  return (
-    <div className="absolute inset-0 overflow-hidden">
-      {particles.map((i) => (
-        <motion.div
-          key={i}
-          className="absolute w-1 h-1 bg-white/20 rounded-full"
-          initial={{
-            x: Math.random() * (typeof window !== 'undefined' ? window.innerWidth : 1000),
-            y: Math.random() * (typeof window !== 'undefined' ? window.innerHeight : 1000),
-            opacity: 0
-          }}
-          animate={{
-            y: [null, -100],
-            opacity: [0, 1, 0]
-          }}
-          transition={{
-            duration: Math.random() * 3 + 2,
-            repeat: Infinity,
-            delay: Math.random() * 2,
-            ease: "linear"
-          }}
-        />
-      ))}
-    </div>
-  );
-};
-
 const VideoDownloader = () => {
   const [url, setUrl] = useState('');
   const [videoData, setVideoData] = useState<VideoData | null>(null);
-  const [selectedQuality, setSelectedQuality] = useState('1080p');
-  const [selectedFormat, setSelectedFormat] = useState<'video' | 'audio' | 'both'>('both');
+  const [selectedMode, setSelectedMode] = useState<'both' | 'video' | 'audio'>('both');
   const [error, setError] = useState('');
   
-  // Use the enhanced useDownloads hook
   const { isLoading, isDownloading, getVideoInfo, startDirectDownload } = useDownloads();
 
-  console.log('VideoDownloader rendering, direct download system active');
-
-  // Detect platform from URL
   const detectPlatform = (url: string) => {
     if (url.includes('youtube.com') || url.includes('youtu.be')) return 'YouTube';
     if (url.includes('facebook.com') || url.includes('fb.watch')) return 'Facebook';
@@ -144,16 +44,10 @@ const VideoDownloader = () => {
       return;
     }
 
-    // Enhanced URL validation
-    const supportedPlatforms = [
-      'youtube.com', 'youtu.be', 'facebook.com', 'fb.watch',
-      'twitter.com', 'x.com', 'instagram.com', 'tiktok.com',
-      'dailymotion.com', 'vimeo.com', 'twitch.tv'
-    ];
-    
-    const isSupported = supportedPlatforms.some(platform => url.includes(platform));
-    if (!isSupported) {
-      setError('Please enter a URL from a supported platform (YouTube, Facebook, Twitter, Instagram, TikTok, etc.)');
+    try {
+      new URL(url); // Validate URL format
+    } catch {
+      setError('Please enter a valid URL');
       return;
     }
 
@@ -170,69 +64,65 @@ const VideoDownloader = () => {
   const handleDirectDownload = async () => {
     if (!videoData) return;
     
-    console.log('Starting direct download with format:', selectedFormat, 'quality:', selectedQuality);
+    console.log('Starting download with mode:', selectedMode);
     
-    const qualityWithFormat = `${selectedQuality}_${selectedFormat}`;
+    // Convert mode to quality format expected by the download function
+    const qualityWithFormat = `1080p_${selectedMode}`;
     await startDirectDownload(url, videoData, qualityWithFormat);
   };
 
-  const qualityOptions = [
-    { label: '144p', value: '144p', desc: 'Lowest quality, smallest file', size: '~5-15MB' },
-    { label: '360p', value: '360p', desc: 'Good for mobile viewing', size: '~15-50MB' },
-    { label: '720p', value: '720p', desc: 'HD quality, balanced size', size: '~50-200MB' },
-    { label: '1080p', value: '1080p', desc: 'Full HD, recommended', size: '~200-500MB' },
-    { label: '1440p', value: '1440p', desc: '2K quality, large file', size: '~500MB-1GB' },
-    { label: '4K', value: '4K', desc: 'Ultra HD, very large file', size: '~1-3GB' }
-  ];
-
   const formatOptions = [
     { 
-      label: 'Video + Audio', 
+      label: '🎞️ Video + Audio (Best)', 
       value: 'both' as const, 
-      icon: Video, 
+      icon: Film, 
       desc: 'Complete video with sound (MP4)',
-      recommended: true,
-      detail: 'Best choice for watching'
+      recommended: true
     },
     { 
-      label: 'Audio Only', 
-      value: 'audio' as const, 
-      icon: Music, 
-      desc: 'Extract audio track only (MP3)',
-      recommended: false,
-      detail: 'Music, podcasts, lectures'
-    },
-    { 
-      label: 'Video Only', 
+      label: '📽️ Video Only (Best)', 
       value: 'video' as const, 
       icon: Film, 
       desc: 'Video without audio track (MP4)',
-      recommended: false,
-      detail: 'Silent clips, GIFs'
+      recommended: false
+    },
+    { 
+      label: '🔊 Audio Only (MP3)', 
+      value: 'audio' as const, 
+      icon: Music, 
+      desc: 'Extract audio track only (MP3)',
+      recommended: false
     }
   ];
 
   return (
-    <div className="min-h-screen bg-black relative overflow-hidden">
-      {/* Animated Background */}
-      <div className="absolute inset-0">
-        <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-black to-gray-900" />
-        
-        {/* Floating Shapes */}
-        <FloatingShape delay={0} className="top-20 left-20" size={150} color="from-red-500/20" />
-        <FloatingShape delay={2} className="top-40 right-32" size={100} color="from-blue-500/20" />
-        <FloatingShape delay={4} className="bottom-32 left-40" size={120} color="from-purple-500/20" />
-        <FloatingShape delay={6} className="bottom-20 right-20" size={80} color="from-green-500/20" />
-        
-        {/* Glow Orbs */}
-        <GlowOrb className="top-1/4 left-1/4" size={300} color="bg-gradient-to-r from-red-500/20 to-orange-500/20" />
-        <GlowOrb className="bottom-1/4 right-1/4" size={250} color="bg-gradient-to-r from-blue-500/20 to-cyan-500/20" />
-        
-        {/* Particle Field */}
-        <ParticleField />
-        
-        {/* Grid Pattern */}
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:50px_50px]" />
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-gray-800 relative">
+      {/* Animated Background Elements */}
+      <div className="absolute inset-0 overflow-hidden">
+        <motion.div
+          animate={{
+            scale: [1, 1.2, 1],
+            opacity: [0.3, 0.6, 0.3],
+          }}
+          transition={{
+            duration: 4,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
+          className="absolute top-1/4 left-1/4 w-64 h-64 bg-gradient-to-r from-red-500/20 to-orange-500/20 rounded-full blur-3xl"
+        />
+        <motion.div
+          animate={{
+            scale: [1.2, 1, 1.2],
+            opacity: [0.2, 0.5, 0.2],
+          }}
+          transition={{
+            duration: 6,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
+          className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 rounded-full blur-3xl"
+        />
       </div>
 
       {/* Content */}
@@ -240,7 +130,7 @@ const VideoDownloader = () => {
         <motion.div
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1, ease: "easeOut" }}
+          transition={{ duration: 1 }}
           className="text-center mb-16"
         >
           <motion.div
@@ -250,68 +140,49 @@ const VideoDownloader = () => {
             className="inline-flex items-center gap-3 bg-white/5 backdrop-blur-sm border border-white/10 rounded-full px-6 py-3 mb-8"
           >
             <Youtube className="w-6 h-6 text-red-500" />
-            <span className="text-white/80 font-medium">Direct Download System</span>
+            <span className="text-white/80 font-medium">YouTube Downloader with Format Options</span>
           </motion.div>
 
-          <motion.h1
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4, duration: 0.8 }}
-            className="text-6xl md:text-8xl font-bold mb-6 bg-gradient-to-r from-white via-gray-200 to-white/60 bg-clip-text text-transparent"
-          >
-            Download
-          </motion.h1>
+          <h1 className="text-6xl md:text-8xl font-bold mb-6 bg-gradient-to-r from-white via-gray-200 to-white/60 bg-clip-text text-transparent">
+            🎥 Download
+          </h1>
           
-          <motion.h2
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.6, duration: 0.8 }}
-            className="text-4xl md:text-6xl font-bold mb-8 bg-gradient-to-r from-[#FFD700] via-[#FFC107] to-[#FFA000] bg-clip-text text-transparent"
-          >
-            From Any Platform
-          </motion.h2>
+          <h2 className="text-4xl md:text-6xl font-bold mb-8 bg-gradient-to-r from-[#00c6ff] via-[#0072ff] to-[#00c6ff] bg-clip-text text-transparent">
+            Any Video
+          </h2>
 
-          <motion.p
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.8, duration: 0.8 }}
-            className="text-xl text-white/60 max-w-2xl mx-auto leading-relaxed"
-          >
-            YouTube, Facebook, Twitter, Instagram, TikTok and 1000+ more platforms. 
-            Choose video quality, audio-only, or video-only downloads.
-          </motion.p>
+          <p className="text-xl text-white/60 max-w-2xl mx-auto leading-relaxed">
+            Paste a YouTube URL and choose what to download: Video + Audio, Video Only, or Audio Only (MP3)
+          </p>
         </motion.div>
 
-        {/* Enhanced Download Interface */}
+        {/* Download Interface */}
         <motion.div
           initial={{ opacity: 0, y: 50 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1, duration: 0.8 }}
-          className="max-w-4xl mx-auto space-y-8"
+          transition={{ delay: 0.5, duration: 0.8 }}
+          className="max-w-4xl mx-auto"
         >
           <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-8 shadow-2xl">
-            {/* Enhanced URL Input */}
+            {/* URL Input */}
             <form onSubmit={handleSubmit} className="mb-8">
               <div className="flex gap-4">
                 <Input
                   type="url"
-                  placeholder="Paste video URL from any supported platform..."
+                  placeholder="e.g. https://youtube.com/watch?v=..."
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  className="flex-1 bg-black/50 border-white/20 text-white placeholder:text-white/40 h-14 text-lg rounded-xl focus:border-red-500 transition-colors"
+                  className="flex-1 bg-black/50 border-white/20 text-white placeholder:text-white/40 h-14 text-lg rounded-xl focus:border-blue-500 transition-colors"
                 />
                 <Button
                   type="submit"
                   disabled={!url || isLoading}
-                  className="h-14 px-8 bg-gradient-to-r from-red-500 to-orange-500 hover:from-red-600 hover:to-orange-600 text-white font-semibold rounded-xl transition-all duration-300 transform hover:scale-105"
+                  className="h-14 px-8 bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 text-white font-semibold rounded-xl transition-all duration-300"
                 >
                   {isLoading ? (
                     <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
-                    <>
-                      <Shield className="w-5 h-5 mr-2" />
-                      Analyze Video
-                    </>
+                    'Analyze'
                   )}
                 </Button>
               </div>
@@ -350,7 +221,7 @@ const VideoDownloader = () => {
                   className="mb-8"
                 >
                   <div className="bg-black/30 rounded-2xl p-6 border border-white/10">
-                    <div className="flex gap-6">
+                    <div className="flex gap-6 mb-6">
                       <img
                         src={videoData.thumbnail}
                         alt="Video thumbnail"
@@ -358,70 +229,39 @@ const VideoDownloader = () => {
                       />
                       <div className="flex-1">
                         <h3 className="text-white font-semibold text-lg mb-2">{videoData.title}</h3>
-                        <div className="flex items-center gap-4 text-white/60 mb-4">
-                          <span>Duration: {videoData.duration}</span>
-                          <span>By: {videoData.uploader}</span>
+                        <div className="flex items-center gap-4 text-white/60">
+                          <span>Platform: {detectPlatform(url)}</span>
                         </div>
-                        
-                        {/* Format Selection */}
-                        <div className="mb-6">
-                          <div className="flex items-center gap-2 mb-3">
-                            <span className="text-white/80 font-medium">Download Format:</span>
-                            <span className="bg-green-500/20 text-green-400 text-xs px-2 py-1 rounded-full flex items-center gap-1">
-                              <CheckCircle className="w-3 h-3" />
-                              Direct Download
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            {formatOptions.map((format) => (
-                              <button
-                                key={format.value}
-                                onClick={() => setSelectedFormat(format.value)}
-                                className={cn(
-                                  "flex flex-col items-center gap-2 p-4 rounded-xl text-sm transition-all relative",
-                                  selectedFormat === format.value
-                                    ? "bg-blue-500/20 border-2 border-blue-400 text-white"
-                                    : "bg-white/5 border border-white/10 text-white/70 hover:bg-white/10"
-                                )}
-                              >
-                                {format.recommended && (
-                                  <span className="absolute -top-2 -right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full">
-                                    Recommended
-                                  </span>
-                                )}
-                                <format.icon className="w-6 h-6" />
-                                <span className="font-medium">{format.label}</span>
-                                <span className="text-xs text-center opacity-75">{format.desc}</span>
-                                <span className="text-xs text-blue-400">{format.detail}</span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        
-                        {/* Quality Selection */}
-                        <div>
-                          <span className="text-white/80 block mb-3 font-medium">
-                            Quality {selectedFormat === 'audio' ? '(Audio Bitrate)' : '(Video Resolution)'}:
-                          </span>
-                          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                            {qualityOptions.map((quality) => (
-                              <button
-                                key={quality.value}
-                                onClick={() => setSelectedQuality(quality.value)}
-                                className={cn(
-                                  "flex flex-col items-center p-3 rounded-lg text-sm transition-colors",
-                                  selectedQuality === quality.value
-                                    ? "bg-red-500/20 border border-red-400 text-white"
-                                    : "bg-white/5 border border-white/10 text-white/70 hover:bg-white/10"
-                                )}
-                              >
-                                <span className="font-medium">{quality.label}</span>
-                                <span className="text-xs opacity-75 text-center">{quality.desc}</span>
-                                <span className="text-xs text-orange-400">{quality.size}</span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Format Selection */}
+                    <div className="mb-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <span className="text-white/80 font-medium">Choose Download Format:</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        {formatOptions.map((format) => (
+                          <button
+                            key={format.value}
+                            onClick={() => setSelectedMode(format.value)}
+                            className={cn(
+                              "flex flex-col items-center gap-3 p-4 rounded-xl text-sm transition-all relative",
+                              selectedMode === format.value
+                                ? "bg-blue-500/20 border-2 border-blue-400 text-white"
+                                : "bg-white/5 border border-white/10 text-white/70 hover:bg-white/10"
+                            )}
+                          >
+                            {format.recommended && selectedMode === format.value && (
+                              <span className="absolute -top-2 -right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full">
+                                Recommended
+                              </span>
+                            )}
+                            <format.icon className="w-6 h-6" />
+                            <span className="font-medium">{format.label}</span>
+                            <span className="text-xs text-center opacity-75">{format.desc}</span>
+                          </button>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -429,14 +269,13 @@ const VideoDownloader = () => {
               )}
             </AnimatePresence>
 
-            {/* Direct Download Button */}
+            {/* Download Button */}
             {videoData && (
               <Button
                 onClick={handleDirectDownload}
                 disabled={isDownloading}
-                className="w-full h-16 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold text-lg rounded-xl transition-all duration-300 transform hover:scale-105 relative overflow-hidden"
+                className="w-full h-16 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold text-lg rounded-xl transition-all duration-300 transform hover:scale-105"
               >
-                <div className="absolute inset-0 bg-white/10 transform skew-x-12 -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
                 {isDownloading ? (
                   <>
                     <Loader2 className="w-6 h-6 mr-3 animate-spin" />
@@ -445,13 +284,13 @@ const VideoDownloader = () => {
                 ) : (
                   <>
                     <Download className="w-6 h-6 mr-3" />
-                    Download Now - {selectedFormat === 'audio' ? 'Audio' : selectedFormat === 'video' ? 'Video' : 'Video + Audio'} ({selectedQuality})
+                    Download {formatOptions.find(f => f.value === selectedMode)?.label}
                   </>
                 )}
               </Button>
             )}
 
-            {/* Download Status Message */}
+            {/* Download Status */}
             {isDownloading && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -460,7 +299,7 @@ const VideoDownloader = () => {
               >
                 <div className="flex items-center justify-center gap-2 text-blue-400">
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  <span className="font-medium">Processing your download...</span>
+                  <span className="font-medium">⏳ Downloading... please wait</span>
                 </div>
                 <p className="text-white/60 text-sm mt-2">
                   Your file will download automatically when ready. Please don't close this page.
@@ -468,33 +307,6 @@ const VideoDownloader = () => {
               </motion.div>
             )}
           </div>
-        </motion.div>
-
-        {/* Features */}
-        <motion.div
-          initial={{ opacity: 0, y: 50 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.2, duration: 0.8 }}
-          className="grid md:grid-cols-4 gap-8 mt-20 max-w-6xl mx-auto"
-        >
-          {[
-            { icon: Youtube, title: "1000+ Platforms", desc: "YouTube, Facebook, Twitter, Instagram, TikTok & more", color: "text-red-500" },
-            { icon: FileVideo, title: "Multiple Formats", desc: "Video, Audio, or Both - You choose!", color: "text-blue-500" },
-            { icon: Download, title: "Real-Time Downloads", desc: "No queues - Instant downloads", color: "text-green-500" },
-            { icon: Play, title: "All Qualities", desc: "From 144p to 4K Ultra HD", color: "text-purple-500" }
-          ].map((feature, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 1.4 + i * 0.2, duration: 0.6 }}
-              className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 text-center hover:bg-white/10 transition-colors"
-            >
-              <feature.icon className={cn("w-12 h-12 mx-auto mb-4", feature.color)} />
-              <h3 className="text-white font-semibold text-lg mb-2">{feature.title}</h3>
-              <p className="text-white/60">{feature.desc}</p>
-            </motion.div>
-          ))}
         </motion.div>
       </div>
     </div>
